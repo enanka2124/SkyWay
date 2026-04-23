@@ -1,0 +1,204 @@
+### =============================================
+### SkyWay API Testing (REST Client for VS Code)
+### Install "REST Client" extension, then click
+### "Send Request" above any request block.
+### =============================================
+
+### ---------- HEALTH CHECK ----------
+
+GET http://localhost:5000/api/health
+
+### ---------- FLIGHTS ----------
+
+### Search Flights (Mumbai → Goa)
+GET http://localhost:5000/api/flights?from=Mumbai&to=Goa&date=2026-04-25
+
+###
+
+### Search Flights (Delhi → Dubai)
+GET http://localhost:5000/api/flights?from=Delhi&to=Dubai&date=2026-05-01
+
+###
+
+### Get Popular Routes
+GET http://localhost:5000/api/flights/popular
+
+###
+
+### Multi-City Search
+POST http://localhost:5000/api/flights/multi
+Content-Type: application/json
+
+{
+  "legs": [
+    { "from": "Mumbai", "to": "Delhi", "date": "2026-05-01" },
+    { "from": "Delhi", "to": "Bangalore", "date": "2026-05-03" }
+  ]
+}
+
+### ---------- HOTELS ----------
+
+### Search Hotels (All Cities)
+GET http://localhost:5000/api/hotels?city=&checkin=2026-04-25&checkout=2026-04-27&guests=2
+
+###
+
+### Search Hotels (Jaipur)
+GET http://localhost:5000/api/hotels?city=Jaipur&checkin=2026-04-25&checkout=2026-04-27&guests=2
+
+###
+
+### Search Hotels (Singapore)
+GET http://localhost:5000/api/hotels?city=Singapore&checkin=2026-05-01&checkout=2026-05-04&guests=2
+
+###
+
+### Search Hotels (Manali)
+GET http://localhost:5000/api/hotels?city=Manali&checkin=2026-05-10&checkout=2026-05-12&guests=3
+
+###
+
+### Get Available Cities
+GET http://localhost:5000/api/hotels/cities
+
+###
+
+### Book a Hotel
+POST http://localhost:5000/api/hotels/book
+Content-Type: application/json
+
+{
+  "hotel": {
+    "name": "Pink City Palace",
+    "city": "Jaipur",
+    "stars": 5,
+    "price": 11499,
+    "image": "https://images.unsplash.com/photo-1587474260584-136574528ed5?w=400&q=80"
+  },
+  "checkin": "2026-04-25",
+  "checkout": "2026-04-27",
+  "guests": 2,
+  "firstName": "John",
+  "lastName": "Doe",
+  "email": "john@example.com"
+}
+
+###
+
+### Get Hotel Bookings
+GET http://localhost:5000/api/hotels/bookings
+
+### ---------- DEALS ----------
+
+### Get All Deals
+GET http://localhost:5000/api/deals
+
+###
+
+### Get Domestic Deals
+GET http://localhost:5000/api/deals?category=Domestic
+
+###
+
+### Get International Deals
+GET http://localhost:5000/api/deals?category=International
+
+###
+
+### Get Weekend Deals
+GET http://localhost:5000/api/deals?category=Weekend
+
+### ---------- AUTH ----------
+
+### Register New User (Note: Aadhaar PDF upload requires Postman/Thunder Client)
+### This will fail without multipart form - use Thunder Client for file upload
+POST http://localhost:5000/api/auth/register
+Content-Type: application/json
+
+{
+  "firstName": "Rahul",
+  "lastName": "Sharma",
+  "email": "rahul@example.com",
+  "phone": "9876543210",
+  "password": "pass123",
+  "address": "123 MG Road",
+  "city": "Mumbai",
+  "state": "Maharashtra",
+  "pincode": "400001"
+}
+
+###
+
+### Login
+POST http://localhost:5000/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "rahul@example.com",
+  "password": "pass123"
+}
+
+###
+
+### Login (Wrong Password - should fail)
+POST http://localhost:5000/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "rahul@example.com",
+  "password": "wrongpass"
+}
+
+###
+
+### Forgot Password
+POST http://localhost:5000/api/auth/forgot-password
+Content-Type: application/json
+
+{
+  "email": "rahul@example.com"
+}
+
+###
+
+### Forgot Email (by phone)
+POST http://localhost:5000/api/auth/forgot-email
+Content-Type: application/json
+
+{
+  "phone": "9876543210"
+}
+
+### ---------- BOOKINGS ----------
+
+### Create Flight Booking
+POST http://localhost:5000/api/bookings
+Content-Type: application/json
+
+{
+  "flight": {
+    "airline": "IndiGo",
+    "code": "6E",
+    "from": "Mumbai",
+    "to": "Goa",
+    "price": 2499,
+    "dep": "06:00",
+    "arr": "07:10",
+    "duration": "1h 10m",
+    "stops": "Direct"
+  },
+  "firstName": "John",
+  "lastName": "Doe",
+  "email": "john@example.com",
+  "phone": "9876543210"
+}
+
+### ---------- PAYMENTS ----------
+
+### Simulate Payment
+POST http://localhost:5000/api/payments/create-order
+Content-Type: application/json
+
+{
+  "amount": 5000
+}
