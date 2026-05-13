@@ -13,7 +13,6 @@ export default function Navbar() {
     setMobileOpen(!mobileOpen)
     document.body.style.overflow = !mobileOpen ? 'hidden' : ''
   }
-
   const closeMenu = () => {
     if (mobileOpen) {
       setMobileOpen(false)
