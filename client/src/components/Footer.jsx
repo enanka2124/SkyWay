@@ -3,43 +3,81 @@ import { Link } from 'react-router-dom'
 export default function Footer() {
   const columns = [
     { title: 'Company', links: [
-      { label: 'About Us', path: '/about' },
-      { label: 'Careers', path: '/careers' },
-      { label: 'Contact Us', path: '/contact' },
+      { label: 'About Us',    path: '/about' },
+      { label: 'Careers',     path: '/careers' },
+      { label: 'Contact Us',  path: '/contact' },
     ]},
     { title: 'Support', links: [
-      { label: 'Help Center', path: '/help' },
-      { label: 'Manage Booking', path: '/manage-booking' },
-      { label: 'Refunds', path: '/refunds' },
+      { label: 'Help Center',     path: '/help' },
+      { label: 'Manage Booking',  path: '/manage-booking' },
+      { label: 'Refunds',         path: '/refunds' },
     ]},
     { title: 'Legal', links: [
       { label: 'Privacy Policy', path: '/privacy' },
-      { label: 'Terms of Use', path: '/terms' },
-      { label: 'Cookie Policy', path: '/cookie-policy' },
-      { label: 'Accessibility', path: '/accessibility' },
+      { label: 'Terms of Use',   path: '/terms' },
+      { label: 'Cookie Policy',  path: '/cookie-policy' },
+      { label: 'Accessibility',  path: '/accessibility' },
     ]},
   ]
 
   return (
-    <footer className="relative z-10 border-t border-white/[0.06]" style={{ background: 'rgba(0,0,0,0.2)', padding: '3rem 0 2rem' }}>
+    <footer
+      className="relative z-10"
+      style={{
+        background: 'linear-gradient(to top, rgba(0,0,0,0.35) 0%, rgba(6,14,30,0.6) 100%)',
+        borderTop: '1px solid rgba(255,255,255,0.07)',
+        padding: '4rem 0 0',
+      }}
+    >
       <div className="container-main">
         <div className="footer-grid">
+          {/* Brand */}
           <div className="footer-brand">
-            <Link to="/" className="font-syne font-[800] text-2xl tracking-tight flex items-center gap-2 mb-4 no-underline text-white">
-              <div className="w-8 h-8 bg-accent rounded-lg flex items-center justify-center text-base">✈</div>
+            <Link to="/" className="font-syne font-extrabold text-2xl tracking-tight flex items-center gap-2.5 mb-4 no-underline text-white">
+              <div
+                className="w-9 h-9 rounded-xl flex items-center justify-center text-base"
+                style={{
+                  background: 'linear-gradient(135deg, #f5a623 0%, #e8940f 100%)',
+                  boxShadow: '0 4px 14px rgba(245,166,35,0.35)',
+                  color: '#060e1e',
+                }}
+              >
+                ✈
+              </div>
               Sky<span className="text-accent">Way</span>
             </Link>
-            <p className="text-text-muted text-sm leading-relaxed" style={{ maxWidth: 260 }}>
-              Your trusted travel companion for seamless flight booking experiences across the globe.
+            <p className="text-text-muted text-sm leading-relaxed" style={{ maxWidth: 240, lineHeight: 1.7 }}>
+              Your trusted travel companion for seamless flight &amp; hotel bookings across the globe.
             </p>
+            {/* Social icons */}
+            <div className="flex gap-3 mt-5">
+              {['𝕏', 'in', 'f'].map((icon, i) => (
+                <a
+                  key={i}
+                  href={icon === 'in' ? 'https://www.linkedin.com/in/enankanandi/' : '#'}
+                  target={icon === 'in' ? '_blank' : undefined}
+                  rel={icon === 'in' ? 'noopener noreferrer' : undefined}
+                  className="social-icon"
+                >
+                  {icon}
+                </a>
+              ))}
+            </div>
           </div>
+
+          {/* Nav columns */}
           {columns.map((col) => (
             <div key={col.title}>
-              <h4 className="font-syne font-bold mb-4 text-sm tracking-wide">{col.title}</h4>
-              <ul className="list-none flex flex-col gap-2">
+              <h4 className="font-syne font-bold mb-4 text-sm tracking-widest uppercase" style={{ letterSpacing: '0.1em', color: '#e8f0ff' }}>
+                {col.title}
+              </h4>
+              <ul className="list-none flex flex-col gap-2.5">
                 {col.links.map((link) => (
                   <li key={link.path}>
-                    <Link to={link.path} className="text-text-muted no-underline text-sm hover:text-white transition-colors">
+                    <Link
+                      to={link.path}
+                      className="footer-link"
+                    >
                       {link.label}
                     </Link>
                   </li>
@@ -48,9 +86,20 @@ export default function Footer() {
             </div>
           ))}
         </div>
-        <div className="footer-bottom border-t border-white/[0.06] flex justify-between items-center text-xs text-text-muted" style={{ marginTop: '3rem', paddingTop: '2rem', paddingBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+
+        {/* Bottom bar */}
+        <div
+          className="footer-bottom flex justify-between items-center text-xs text-text-muted"
+          style={{
+            marginTop: '3rem',
+            paddingTop: '1.5rem',
+            paddingBottom: '1.5rem',
+            borderTop: '1px solid rgba(255,255,255,0.07)',
+            flexWrap: 'wrap', gap: '0.5rem',
+          }}
+        >
           <span>© 2026 SkyWay. All rights reserved.</span>
-          <span>Designed for dreamers. Built for travelers.</span>
+          <span style={{ opacity: 0.6 }}>Designed for dreamers. Built for travelers. 🚀</span>
         </div>
       </div>
     </footer>

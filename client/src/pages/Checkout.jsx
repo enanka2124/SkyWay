@@ -19,6 +19,16 @@ export default function Checkout() {
   const [confirmed, setConfirmed] = useState(false)
   const [ticketId, setTicketId] = useState('')
 
+  const handlePhoneChange = (e) => {
+    const onlyNumbers = e.target.value.replace(/\D/g, '').slice(0, 10)
+    setPhone(onlyNumbers)
+  }
+
+  const handlePassportChange = (e) => {
+    const cleanPassport = e.target.value.replace(/[^a-zA-Z0-9]/g, '').slice(0, 20).toUpperCase()
+    setPassport(cleanPassport)
+  }
+
   useEffect(() => { window.scrollTo(0, 0) }, [])
 
   if (!booking) {
@@ -41,29 +51,33 @@ export default function Checkout() {
   const type = booking.type
   const item = booking.data
 
-  // ── Price Calculations ──
+  //  Price Calculations 
   const getFlightPricing = () => {
     const base = item.price
-    const taxes = Math.round(base * 0.05)
-    const fee = 299
-    return { base, taxes, fee, total: base + taxes + fee }
+    const taxes = Math.round(base * 0.18)
+    const fee = 149
+    if (item.isDeal && item.discount) {
+      const discountVal = Math.round((base + taxes + fee) * (item.discount / 100))
+      return { base, taxes, fee, discount: discountVal, total: (base + taxes + fee) - discountVal }
+    }
+    return { base, taxes, fee, discount: 0, total: base + taxes + fee }
   }
 
   const getHotelPricing = () => {
     const nights = booking.searchInfo?.nights || 1
-    const base = item.price * nights
+    const guests = booking.searchInfo?.guests || 1
+    const rooms = booking.searchInfo?.rooms || Math.ceil(guests / 2)
+    const base = item.price * nights * rooms
     const taxes = Math.round(base * 0.12)
-    return { base, nights, perNight: item.price, taxes, total: base + taxes }
+    const fee = 0
+    if (item.isDeal && item.discount) {
+      const discountVal = Math.round((base + taxes + fee) * (item.discount / 100))
+      return { base, nights, guests, rooms, perNight: item.price, taxes, fee, discount: discountVal, total: (base + taxes + fee) - discountVal }
+    }
+    return { base, nights, guests, rooms, perNight: item.price, taxes, fee, discount: 0, total: base + taxes + fee }
   }
 
-  const getDealPricing = () => {
-    const base = item.dealPrice
-    const taxes = Math.round(base * 0.05)
-    const fee = 299
-    return { base, originalPrice: item.originalPrice, discount: item.discount, taxes, fee, total: base + taxes + fee }
-  }
-
-  const pricing = type === 'flight' ? getFlightPricing() : type === 'hotel' ? getHotelPricing() : getDealPricing()
+  const pricing = type === 'flight' || type === 'deal' ? getFlightPricing() : getHotelPricing()
 
   const handleProceed = () => {
     if (!firstName.trim() || !lastName.trim() || !email.trim()) {
@@ -90,9 +104,10 @@ export default function Checkout() {
       hotel: type === 'hotel' ? item : undefined,
       checkin: booking.searchInfo?.checkin,
       checkout: booking.searchInfo?.checkout,
-      pricing: { total: pricing.total },
+      pricing: { ...pricing },
       passenger: { firstName, lastName, email, phone },
       paymentId: paymentData?.paymentId,
+      paymentMethod: paymentData?.method || 'card',
       bookedAt: new Date().toISOString(),
     }
     trips.push(tripEntry)
@@ -100,12 +115,22 @@ export default function Checkout() {
 
     // Also try server booking
     try {
-      if (type === 'flight' || type === 'deal') {
-        await fetch('/api/bookings', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ flight: item, firstName, lastName, email, phone, passport, nationality }),
-        })
-      }
+      await fetch('/api/bookings', {
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          type,
+          flight: type !== 'hotel' ? item : undefined,
+          hotel: type === 'hotel' ? item : undefined,
+          pricing,
+          firstName, 
+          lastName, 
+          email, 
+          phone, 
+          passport, 
+          nationality 
+        }),
+      })
     } catch { /* already saved locally */ }
 
     setConfirmed(true)
@@ -124,34 +149,47 @@ export default function Checkout() {
                 <button onClick={() => navigate(-1)} className="text-text-muted text-sm flex items-center gap-2 mb-4 bg-transparent border-none cursor-pointer hover:text-white">
                   ← Back to {type === 'hotel' ? 'Hotels' : type === 'deal' ? 'Deals' : 'Search Results'}
                 </button>
-                <h1 className="font-syne text-[clamp(1.8rem,4vw,2.5rem)] font-[800]">
+                <h1 className="font-syne text-[clamp(1.8rem,4vw,2.5rem)] font-extrabold">
                   Review & <span className="text-accent">Checkout</span>
                 </h1>
               </div>
 
-              <div className="checkout-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: '2rem', alignItems: 'start' }}>
+              {showPayment ? (
+                <PaymentModal
+                  amount={pricing.total}
+                  bookingInfo={{
+                    from: item.from || item.title?.split('→')[0]?.trim() || item.city,
+                    to: item.to || item.title?.split('→')[1]?.trim() || '',
+                    airline: item.airline || item.name || 'SkyWay',
+                  }}
+                  onSuccess={handlePaymentSuccess}
+                  onClose={() => setShowPayment(false)}
+                />
+              ) : (
+                <div className="checkout-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: '2rem', alignItems: 'start' }}>
 
-                {/* ── Left Column: Booking Details + Form ── */}
-                <div className="flex flex-col gap-5">
+                  {/*  Left Column: Booking Details + Form  */}
+                  <div className="flex flex-col gap-5">
 
-                  {/* Booking Summary Card */}
-                  <div className="glass-card" style={{ padding: '1.5rem 2rem' }}>
-                    <h2 className="font-syne text-lg font-bold mb-4 flex items-center gap-2">
+                    {/* Booking Summary Card */}
+                    <div className="glass-card" style={{ padding: '1.5rem 2rem' }}>
+                    <h2 className="font-syne text-lg font-bold mb-4 flex items-center gap-2 text-accent">
                       {type === 'hotel' ? '🏨' : '✈'} {type === 'deal' ? 'Deal' : type.charAt(0).toUpperCase() + type.slice(1)} Details
                     </h2>
 
                     {/* Flight / Deal details */}
                     {(type === 'flight' || type === 'deal') && (
                       <div>
-                        {type === 'deal' && (
-                          <div className="px-3 py-1.5 rounded-lg text-xs font-bold inline-block mb-3" style={{ background: 'rgba(245,166,35,0.15)', color: 'var(--color-accent)' }}>
-                            🎉 {item.discount}% OFF — Save ₹{(item.originalPrice - item.dealPrice).toLocaleString('en-IN')}
+                        {item.isDeal && item.discount > 0 && (
+                          <div className="px-3 py-1.5 rounded-lg text-xs font-bold inline-block mb-3" style={{ background: 'rgba(34,208,122,0.15)', color: '#22d07a' }}>
+                            🎉 Coupon Applied: {item.discount}% OFF! You saved ₹{pricing.discount?.toLocaleString('en-IN')}
                           </div>
                         )}
                         <div className="flex items-center gap-4 mb-3">
                           {item.icon && <div className="text-3xl">{item.icon}</div>}
                           <div className="flex items-center gap-3 flex-1 flex-wrap">
                             <div>
+                              {item.searchedDate && <div className="text-xs font-bold text-accent mb-0.5">{new Date(item.searchedDate).toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}</div>}
                               <div className="font-syne text-xl font-bold">{item.dep || '--'}</div>
                               <div className="text-sm text-text-muted">{item.from || item.title?.split('→')[0]?.trim()}</div>
                             </div>
@@ -178,12 +216,34 @@ export default function Checkout() {
                           {item.meal && <span>🍽 {item.meal}</span>}
                           {item.category && <span>📁 {item.category}</span>}
                         </div>
+                        {item.tripType === 'round' && item.returnDate && (
+                          <div className="mt-4 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                            <div className="text-xs font-bold text-accent mb-2">RETURN FLIGHT</div>
+                            <div className="flex items-center gap-4">
+                              <div className="flex-1">
+                                <div className="text-xs font-bold text-accent mb-0.5">{new Date(item.returnDate).toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}</div>
+                                <div className="font-syne text-lg font-bold">{item.arr || '--'}</div>
+                                <div className="text-sm text-text-muted">{item.to || item.title?.split('→')[1]?.trim()}</div>
+                              </div>
+                              <div className="text-accent text-sm" style={{ transform: 'rotate(180deg)' }}>✈</div>
+                              <div className="flex-1 text-right">
+                                <div className="font-syne text-lg font-bold">{item.dep || '--'}</div>
+                                <div className="text-sm text-text-muted">{item.from || item.title?.split('→')[0]?.trim()}</div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
 
                     {/* Hotel details */}
                     {type === 'hotel' && (
                       <div>
+                        {item.isDeal && item.discount > 0 && (
+                          <div className="px-3 py-1.5 rounded-lg text-xs font-bold inline-block mb-4" style={{ background: 'rgba(34,208,122,0.15)', color: '#22d07a' }}>
+                            🎉 Coupon Applied: {item.discount}% OFF! You saved ₹{pricing.discount?.toLocaleString('en-IN')}
+                          </div>
+                        )}
                         <div className="flex gap-4 items-start">
                           {item.image && (
                             <div className="rounded-xl bg-cover bg-center shrink-0 overflow-hidden" style={{ width: 100, height: 80, backgroundImage: `url('${item.image}')` }}></div>
@@ -200,11 +260,11 @@ export default function Checkout() {
                         <div className="flex gap-4 mt-4 flex-wrap text-sm">
                           <div className="flex flex-col px-4 py-2 rounded-xl" style={{ background: 'rgba(255,255,255,0.04)' }}>
                             <span className="text-xs text-text-muted">Check-in</span>
-                            <span className="font-medium">{booking.searchInfo?.checkin}</span>
+                            <span className="font-medium">{(booking.checkin || booking.searchInfo?.checkin) ? `${new Date(booking.checkin || booking.searchInfo.checkin).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })} (2:00 PM)` : '--'}</span>
                           </div>
                           <div className="flex flex-col px-4 py-2 rounded-xl" style={{ background: 'rgba(255,255,255,0.04)' }}>
                             <span className="text-xs text-text-muted">Check-out</span>
-                            <span className="font-medium">{booking.searchInfo?.checkout}</span>
+                            <span className="font-medium">{(booking.checkout || booking.searchInfo?.checkout) ? `${new Date(booking.checkout || booking.searchInfo.checkout).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })} (11:00 AM)` : '--'}</span>
                           </div>
                           <div className="flex flex-col px-4 py-2 rounded-xl" style={{ background: 'rgba(255,255,255,0.04)' }}>
                             <span className="text-xs text-text-muted">Guests</span>
@@ -228,7 +288,7 @@ export default function Checkout() {
 
                   {/* Traveller Details Form */}
                   <div className="glass-card" style={{ padding: '1.5rem 2rem' }}>
-                    <h2 className="font-syne text-lg font-bold mb-4">👤 Traveller Details</h2>
+                    <h2 className="font-syne text-lg font-bold mb-4 text-accent">👤 Traveller Details</h2>
                     <div className="flex flex-col gap-4">
                       <div className="grid grid-cols-2 gap-3">
                         <div className="flex flex-col gap-1.5">
@@ -247,11 +307,25 @@ export default function Checkout() {
                       <div className="grid grid-cols-2 gap-3">
                         <div className="flex flex-col gap-1.5">
                           <label className="text-xs font-medium text-text-muted tracking-wider uppercase">Phone</label>
-                          <input type="tel" placeholder="+91 9876543210" value={phone} onChange={e => setPhone(e.target.value)} className="sky-input" />
+                          <input 
+                            type="tel" 
+                            placeholder="+91 9876543210" 
+                            value={phone} 
+                            onChange={handlePhoneChange} 
+                            className="sky-input" 
+                            maxLength={10} 
+                          />
                         </div>
                         <div className="flex flex-col gap-1.5">
                           <label className="text-xs font-medium text-text-muted tracking-wider uppercase">Passport / ID</label>
-                          <input type="text" placeholder="Optional" value={passport} onChange={e => setPassport(e.target.value)} className="sky-input" />
+                          <input 
+                            type="text" 
+                            placeholder="Optional" 
+                            value={passport} 
+                            onChange={handlePassportChange} 
+                            className="sky-input" 
+                            maxLength={20} 
+                          />
                         </div>
                       </div>
                       <div className="flex flex-col gap-1.5">
@@ -265,32 +339,38 @@ export default function Checkout() {
                   </div>
                 </div>
 
-                {/* ── Right Column: Price Summary (Sticky) ── */}
+                {/*  Right Column: Price Summary (Sticky)  */}
                 <div className="checkout-price-col" style={{ position: 'sticky', top: '5rem' }}>
                   <div className="glass-card" style={{ padding: '1.5rem 2rem' }}>
-                    <h2 className="font-syne text-lg font-bold mb-5">💰 Price Summary</h2>
+                    <h2 className="font-syne text-lg font-bold mb-5 text-accent">💰 Price Summary</h2>
 
                     {(type === 'flight' || type === 'deal') && (
                       <div className="flex flex-col gap-2.5">
-                        {type === 'deal' && (
-                          <div className="price-line">
-                            <span className="text-text-muted line-through">Original price</span>
-                            <span className="text-text-muted line-through">₹{pricing.originalPrice.toLocaleString('en-IN')}</span>
+                        <div className="price-line"><span>Base fare</span><span>₹{pricing.base.toLocaleString('en-IN')}</span></div>
+                        <div className="price-line"><span>Taxes & fees</span><span>₹{pricing.taxes.toLocaleString('en-IN')}</span></div>
+                        <div className="price-line"><span>Convenience fee</span><span>₹{pricing.fee}</span></div>
+                        {pricing.discount > 0 && (
+                          <div className="price-line font-bold" style={{ color: '#22d07a' }}>
+                            <span>Coupon Savings ({item.discount}%)</span>
+                            <span>-₹{pricing.discount.toLocaleString('en-IN')}</span>
                           </div>
                         )}
-                        <div className="price-line"><span>Base fare</span><span>₹{pricing.base.toLocaleString('en-IN')}</span></div>
-                        <div className="price-line"><span>Taxes & fees (5%)</span><span>₹{pricing.taxes.toLocaleString('en-IN')}</span></div>
-                        <div className="price-line"><span>Convenience fee</span><span>₹{pricing.fee}</span></div>
-                        <div className="border-t border-white/[0.08] my-2"></div>
+                        <div className="border-t border-white/8 my-2"></div>
                         <div className="price-line total"><span>Total</span><span>₹{pricing.total.toLocaleString('en-IN')}</span></div>
                       </div>
                     )}
 
                     {type === 'hotel' && (
                       <div className="flex flex-col gap-2.5">
-                        <div className="price-line"><span>₹{pricing.perNight.toLocaleString('en-IN')} × {pricing.nights} night{pricing.nights > 1 ? 's' : ''}</span><span>₹{pricing.base.toLocaleString('en-IN')}</span></div>
-                        <div className="price-line"><span>Taxes (12%)</span><span>₹{pricing.taxes.toLocaleString('en-IN')}</span></div>
-                        <div className="border-t border-white/[0.08] my-2"></div>
+                        <div className="price-line"><span>₹{pricing.perNight.toLocaleString('en-IN')} × {pricing.nights} night{pricing.nights > 1 ? 's' : ''} × {pricing.rooms} room{pricing.rooms > 1 ? 's' : ''}</span><span>₹{pricing.base.toLocaleString('en-IN')}</span></div>
+                        <div className="price-line"><span>Taxes & fees</span><span>₹{pricing.taxes.toLocaleString('en-IN')}</span></div>
+                        {pricing.discount > 0 && (
+                          <div className="price-line font-bold" style={{ color: '#22d07a' }}>
+                            <span>Coupon Savings ({item.discount}%)</span>
+                            <span>-₹{pricing.discount.toLocaleString('en-IN')}</span>
+                          </div>
+                        )}
+                        <div className="border-t border-white/8 my-2"></div>
                         <div className="price-line total"><span>Total</span><span>₹{pricing.total.toLocaleString('en-IN')}</span></div>
                       </div>
                     )}
@@ -313,9 +393,10 @@ export default function Checkout() {
                   </div>
                 </div>
               </div>
+              )}
             </>
           ) : (
-            /* ── Confirmation Page ── */
+            /*  Confirmation Page  */
             <div style={{ maxWidth: 580, margin: '4rem auto 3rem' }}>
               <div className="glass-card text-center" style={{ padding: '3.5rem 2.5rem 3rem' }}>
 
@@ -331,24 +412,88 @@ export default function Checkout() {
                 <div style={{ height: '2.5rem' }}></div>
 
                 {/* Booking Details Card */}
-                <div className="rounded-2xl text-left" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', padding: '1.75rem 2rem' }}>
-                  <div className="text-xs font-medium text-text-muted tracking-wider uppercase" style={{ marginBottom: '0.5rem' }}>Booked by</div>
-                  <div className="font-bold text-lg">{firstName} {lastName}</div>
-                  <div className="text-sm text-text-muted" style={{ marginTop: '0.25rem' }}>{email}</div>
+                <div className="rounded-2xl text-left flex flex-col items-stretch gap-0" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', boxShadow: '0 8px 32px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
+                  
+                  {/* Trip Info Section */}
+                  <div style={{ padding: '1.5rem 2.5rem', background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                    {type === 'flight' || type === 'deal' ? (
+                      <div className="flex flex-col gap-4">
+                        <div className="flex justify-between items-center flex-wrap gap-4">
+                          <div>
+                            <div className="text-xs font-medium text-text-muted tracking-wider uppercase mb-1">Departure</div>
+                            <div className="font-syne text-xl font-bold">{item.dep || '--'}</div>
+                            <div className="text-sm">{item.from || item.title?.split('→')[0]?.trim()}</div>
+                            {item.searchedDate && <div className="text-xs text-accent mt-1">{new Date(item.searchedDate).toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}</div>}
+                          </div>
+                          <div className="text-accent text-2xl opacity-50">✈</div>
+                          <div className="text-right">
+                            <div className="text-xs font-medium text-text-muted tracking-wider uppercase mb-1">Arrival</div>
+                            <div className="font-syne text-xl font-bold">{item.arr || '--'}</div>
+                            <div className="text-sm">{item.to || item.title?.split('→')[1]?.trim()}</div>
+                          </div>
+                        </div>
+                        {item.tripType === 'round' && item.returnDate && (
+                          <div className="pt-4 mt-1 border-t" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
+                            <div className="flex justify-between items-center flex-wrap gap-4">
+                              <div>
+                                <div className="text-xs font-medium text-text-muted tracking-wider uppercase mb-1">Return</div>
+                                <div className="font-syne text-xl font-bold">{item.arr || '--'}</div>
+                                <div className="text-sm">{item.to || item.title?.split('→')[1]?.trim()}</div>
+                                <div className="text-xs text-accent mt-1">{new Date(item.returnDate).toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}</div>
+                              </div>
+                              <div className="text-accent text-2xl opacity-50" style={{ transform: 'rotate(180deg)' }}>✈</div>
+                              <div className="text-right">
+                                <div className="text-xs font-medium text-text-muted tracking-wider uppercase mb-1">Arrival</div>
+                                <div className="font-syne text-xl font-bold">{item.dep || '--'}</div>
+                                <div className="text-sm">{item.from || item.title?.split('→')[0]?.trim()}</div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-2">
+                        <div className="font-syne text-xl font-bold">{item.name}</div>
+                        <div className="text-sm text-text-muted">📍 {item.city}</div>
+                        <div className="flex gap-6 mt-2">
+                          <div>
+                            <div className="text-xs font-medium text-text-muted tracking-wider uppercase mb-0.5">Check-in</div>
+                            <div className="text-sm font-bold text-accent">{(booking.checkin || booking.searchInfo?.checkin) ? `${new Date(booking.checkin || booking.searchInfo.checkin).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })} (2:00 PM)` : '--'}</div>
+                          </div>
+                          <div>
+                            <div className="text-xs font-medium text-text-muted tracking-wider uppercase mb-0.5">Check-out</div>
+                            <div className="text-sm font-bold text-accent">{(booking.checkout || booking.searchInfo?.checkout) ? `${new Date(booking.checkout || booking.searchInfo.checkout).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })} (11:00 AM)` : '--'}</div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
 
-                  <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '1.25rem 0' }}></div>
+                  {/* Payment Info Section */}
+                  <div className="flex flex-col md:flex-row justify-between items-center gap-6" style={{ padding: '1.5rem 2.5rem' }}>
+                    <div>
+                      <div className="text-xs font-medium text-text-muted tracking-wider uppercase mb-1">Booked by</div>
+                      <div className="font-bold text-xl">{firstName} {lastName}</div>
+                      <div className="text-sm text-text-muted mt-1">{email}</div>
+                    </div>
 
-                  <div className="text-xs font-medium text-text-muted tracking-wider uppercase" style={{ marginBottom: '0.5rem' }}>Total Paid</div>
-                  <div className="font-syne text-3xl font-bold text-accent">₹{pricing.total.toLocaleString('en-IN')}</div>
+                    <div className="hidden md:block w-px h-16" style={{ background: 'rgba(255,255,255,0.1)' }}></div>
+                    <div className="md:hidden h-px w-full" style={{ background: 'rgba(255,255,255,0.1)' }}></div>
+
+                    <div className="text-left md:text-right w-full md:w-auto">
+                      <div className="text-xs font-medium text-text-muted tracking-wider uppercase mb-1">Total Paid</div>
+                      <div className="font-syne text-3xl font-bold text-accent">₹{pricing.total.toLocaleString('en-IN')}</div>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Spacer */}
-                <div style={{ height: '2.5rem' }}></div>
+                <div style={{ height: '3.5rem' }}></div>
 
                 {/* Action Buttons */}
-                <div className="flex gap-4 justify-center flex-wrap">
-                  <Link to="/my-trips" className="btn-accent no-underline px-8 py-3.5 text-base">View My Trips</Link>
-                  <Link to="/" className="btn-ghost no-underline px-8 py-3.5 text-base">Book Another</Link>
+                <div className="flex gap-5 justify-center flex-wrap">
+                  <Link to="/my-trips" className="btn-accent no-underline px-8 py-3.5 text-base font-semibold" style={{ minWidth: '180px' }}>View My Trips</Link>
+                  <Link to="/" className="btn-ghost no-underline px-8 py-3.5 text-base font-semibold" style={{ minWidth: '180px' }}>Book Another</Link>
                 </div>
               </div>
             </div>
@@ -356,19 +501,6 @@ export default function Checkout() {
 
         </div>
       </section>
-
-      {showPayment && (
-        <PaymentModal
-          amount={pricing.total}
-          bookingInfo={{
-            from: item.from || item.title?.split('→')[0]?.trim() || item.city,
-            to: item.to || item.title?.split('→')[1]?.trim() || '',
-            airline: item.airline || item.name || 'SkyWay',
-          }}
-          onSuccess={handlePaymentSuccess}
-          onClose={() => setShowPayment(false)}
-        />
-      )}
 
       <Footer />
     </>

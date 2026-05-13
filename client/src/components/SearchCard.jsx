@@ -1,46 +1,259 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
-export default function SearchCard({ onSearch }) {
+// Comprehensive list of cities for the smart autocorrect feature
+const knownCities = [
+  'Mumbai', 'Goa', 'Delhi', 'Bangalore', 'Chennai', 'Dubai', 'Jaipur', 'Kolkata', 'Hyderabad', 'Manali', 'Singapore', 'Bangkok', 'Udaipur', 'Pune', 'Ahmedabad', 'London', 'New York', 'Paris', 'Tokyo', 'Bali', 'Colombo', 'Kathmandu', 'Surat', 'Lucknow', 'Kanpur', 'Nagpur', 'Indore', 'Bhopal', 'Visakhapatnam', 'Patna', 'Vadodara', 'Ludhiana', 'Agra', 'Nashik', 'Rajkot', 'Varanasi', 'Srinagar', 'Aurangabad', 'Amritsar', 'Allahabad', 'Ranchi', 'Coimbatore', 'Jabalpur', 'Gwalior', 'Vijayawada', 'Jodhpur', 'Madurai', 'Raipur', 'Kota', 'Guwahati', 'Chandigarh', 'Mysore', 'Tiruchirappalli', 'Bhubaneswar', 'Thiruvananthapuram', 'Kochi', 'Dehradun', 'Mangalore', 'Tirupati'
+];
+
+/**
+ * Standard Levenshtein algorithm to calculate string similarity.
+ * Used for the search city suggestion engine.
+ */
+const getLevenshteinDistance = (s1, s2) => {
+  const table = Array.from({ length: s2.length + 1 }, (_, i) => [i]);
+  for (let j = 0; j <= s1.length; j++) table[0][j] = j;
+
+  for (let i = 1; i <= s2.length; i++) {
+    for (let j = 1; j <= s1.length; j++) {
+      const cost = s1[j - 1] === s2[i - 1] ? 0 : 1;
+      table[i][j] = Math.min(
+        table[i - 1][j] + 1,      // deletion
+        table[i][j - 1] + 1,      // insertion
+        table[i - 1][j - 1] + cost // substitution
+      );
+    }
+  }
+  return table[s2.length][s1.length];
+};
+
+/**
+ * Intelligent city name correction. 
+ * First checks for substring matches, then falls back to fuzzy matching.
+ */
+const autoCorrectCity = (input) => {
+  if (!input || input.length < 3) return input;
+
+  // Strip out airport codes in parentheses if present
+  const query = input.trim().replace(/\s*\(.*?\)/, '').toLowerCase();
+
+  const exact = knownCities.find(c => c.toLowerCase() === query);
+  if (exact) return input;
+
+  let bestMatch = null;
+  let minDiff = Infinity;
+
+  for (const city of knownCities) {
+    const cityLower = city.toLowerCase();
+
+    // Quick substring check for better UX
+    if (cityLower.includes(query) || query.includes(cityLower)) {
+      return city;
+    }
+
+    // Fuzzy matching for typos
+    const dist = getLevenshteinDistance(query, cityLower);
+    if (dist < minDiff && dist <= 3) {
+      minDiff = dist;
+      bestMatch = city;
+    }
+  }
+
+  return bestMatch || input;
+};
+
+export default function SearchCard({ onSearch, initialFrom, initialTo, initialDate }) {
   const [activeTab, setActiveTab] = useState('one-way')
-  const [from, setFrom] = useState('Mumbai (BOM)')
-  const [to, setTo] = useState('Delhi (DEL)')
-  const [depart, setDepart] = useState('')
+  const [from, setFrom] = useState(initialFrom || 'Mumbai (BOM)')
+  const [to, setTo] = useState(initialTo || 'Delhi (DEL)')
+  const [depart, setDepart] = useState(initialDate || '')
   const [returnDate, setReturnDate] = useState('')
   const [passengers, setPassengers] = useState('1 Adult')
   const [cabin, setCabin] = useState('Economy')
 
+  // Set default dates if not provided by parent
   useEffect(() => {
-    const today = new Date()
-    const offset = today.getTimezoneOffset() * 60000
-    const toLocalISO = (d) => new Date(d - offset).toISOString().split('T')[0]
-    setDepart(toLocalISO(today))
-    const next = new Date(); next.setDate(next.getDate() + 7)
-    setReturnDate(toLocalISO(next))
+    if (!initialDate) {
+      const today = new Date()
+      const timezoneOffset = today.getTimezoneOffset() * 60000
+      const toLocalISO = (d) => new Date(d - timezoneOffset).toISOString().split('T')[0]
+
+      setDepart(toLocalISO(today))
+
+      const oneWeekLater = new Date();
+      oneWeekLater.setDate(oneWeekLater.getDate() + 7)
+      setReturnDate(toLocalISO(oneWeekLater))
+    }
+  }, [initialDate])
+
+  const [showDepartCal, setShowDepartCal] = useState(false)
+  const [showReturnCal, setShowReturnCal] = useState(false)
+  const [showComingSoon, setShowComingSoon] = useState(false)
+  const departRef = useRef(null)
+  const returnRef = useRef(null)
+
+  /**
+   * Deterministic hash to simulate historical demand data for the calendar.
+   * Ensures the colors are consistent across renders for the same date.
+   */
+  const getDemandColorForDate = (dateStr) => {
+    if (!dateStr) return '#22c55e' // Default to Low Demand
+    const parts = dateStr.split('-')
+    if (parts.length === 3) {
+      const [year, month, day] = parts.map(Number)
+      const seed = year + (month - 1) + day
+      if (seed % 5 === 0) return '#ef4444' // High demand
+      if (seed % 3 === 0) return '#eab308' // Medium demand
+    }
+    return '#22c55e' // Low demand
+  }
+
+  // Handle clicks outside of custom calendars to close them
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (departRef.current && !departRef.current.contains(e.target)) setShowDepartCal(false)
+      if (returnRef.current && !returnRef.current.contains(e.target)) setShowReturnCal(false)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  const swapCities = () => { setFrom(to); setTo(from) }
-  const handleSearch = () => { onSearch?.({ from, to, depart, returnDate, passengers, cabin }) }
+  const swapCities = () => {
+    const prevFrom = from;
+    setFrom(to);
+    setTo(prevFrom);
+  }
 
-  const tabs = [
+  const handleSearch = () => {
+    const finalFrom = autoCorrectCity(from);
+    const finalTo = autoCorrectCity(to);
+
+    // Auto-update UI if corrections were made
+    if (finalFrom !== from) setFrom(finalFrom);
+    if (finalTo !== to) setTo(finalTo);
+
+    onSearch?.({
+      from: finalFrom,
+      to: finalTo,
+      depart,
+      returnDate,
+      passengers,
+      cabin,
+      tripType: activeTab
+    })
+  }
+
+  // A custom, premium calendar implementation for better UX
+  const CustomCalendar = ({ value, onChange, onClose }) => {
+    const baseDate = new Date(value || new Date())
+    const yr = baseDate.getFullYear()
+    const mo = baseDate.getMonth()
+    const daysCount = new Date(yr, mo + 1, 0).getDate()
+    const startDay = new Date(yr, mo, 1).getDay()
+
+    const calendarGrid = []
+    for (let i = 0; i < startDay; i++) calendarGrid.push(null)
+    for (let i = 1; i <= daysCount; i++) calendarGrid.push(i)
+
+    return (
+      <div
+        className="absolute top-full left-0 mt-2 p-4 rounded-xl shadow-2xl z-50"
+        style={{
+          width: 'min(280px, calc(100vw - 2rem))',
+          background: '#0b1d3a',
+          border: '1px solid rgba(255,255,255,0.12)',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.6)'
+        }}
+      >
+        <div className="flex justify-between mb-4 font-bold text-white">
+          <span>{baseDate.toLocaleString('default', { month: 'long', year: 'numeric' })}</span>
+        </div>
+        <div className="grid grid-cols-7 gap-1 text-center text-xs text-text-muted mb-2">
+          {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(day => <div key={day}>{day}</div>)}
+        </div>
+        <div className="grid grid-cols-7 gap-1 text-center">
+          {calendarGrid.map((dayNum, idx) => {
+            if (!dayNum) return <div key={idx}></div>
+            const dateStr = `${yr}-${String(mo + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`
+            const demandColor = getDemandColorForDate(dateStr)
+            const isSelected = value === dateStr
+            const isBlocked = new Date(dateStr) < new Date(new Date().setHours(0, 0, 0, 0))
+
+            return (
+              <button
+                key={idx}
+                onClick={() => { if (!isBlocked) { onChange(dateStr); onClose() } }}
+                disabled={isBlocked}
+                className={`p-2 rounded-lg text-sm transition-all ${isBlocked ? 'opacity-30 cursor-not-allowed' : 'hover:bg-white/10 relative'} ${isSelected ? 'bg-white/20 font-bold text-white ring-1 ring-white/30' : 'text-white/80'}`}
+              >
+                {dayNum}
+                {!isBlocked && (
+                  <div
+                    style={{
+                      background: demandColor,
+                      width: 4,
+                      height: 4,
+                      borderRadius: '50%',
+                      margin: '2px auto 0'
+                    }}
+                    title={demandColor === '#ef4444' ? 'High Demand' : demandColor === '#eab308' ? 'Medium Demand' : 'Low Demand'}
+                  />
+                )}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
+
+  const tabOptions = [
     { id: 'one-way', label: 'One Way' },
     { id: 'round', label: 'Round Trip' },
     { id: 'multi', label: 'Multi-City' },
   ]
 
   return (
-    <div className="relative z-20" style={{ maxWidth: '900px', margin: '0 auto', padding: '0 2rem 4rem' }}>
+    <div className="relative z-20" style={{ maxWidth: '1000px', margin: '0 auto', padding: '0.5rem 1rem 3rem' }}>
+
+      {showComingSoon && (
+        <div className="modal-overlay" style={{ zIndex: 9999, position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)' }} onClick={() => setShowComingSoon(false)}>
+          <div className="glass-card" style={{ padding: '3rem 2.5rem', textAlign: 'center', maxWidth: '400px', width: '90%', animation: 'float 0.3s ease-out' }} onClick={e => e.stopPropagation()}>
+            <div className="w-16 h-16 rounded-full flex items-center justify-center text-3xl mx-auto mb-4" style={{ background: 'rgba(34,208,122,0.1)', border: '1px solid rgba(34,208,122,0.3)', color: '#22d07a' }}>🚀</div>
+            <h3 className="font-syne text-2xl font-bold mb-2">Coming Soon!</h3>
+            <p className="text-text-muted mb-6">We're working hard on bringing you an advanced Multi-City flight planner. Stay tuned for updates!</p>
+            <button className="btn-accent w-full py-3 rounded-lg font-bold" onClick={() => setShowComingSoon(false)}>Got it!</button>
+          </div>
+        </div>
+      )}
+
       <div className="anim-4 glass-card">
-        {/* Tabs */}
-        <div className="flex gap-1 rounded-[10px] p-1 mb-6 w-fit" style={{ background: 'rgba(255,255,255,0.06)' }}>
-          {tabs.map((tab) => (
-            <button key={tab.id} className={`tab-btn ${activeTab === tab.id ? 'active' : ''}`} onClick={() => setActiveTab(tab.id)}>
-              {tab.label}
-            </button>
-          ))}
+        {/* Navigation Tabs + Legend */}
+        <div className="flex items-center justify-between flex-wrap gap-3 mb-8">
+          <div className="flex gap-1 rounded-[10px] p-1" style={{ background: 'rgba(255,255,255,0.06)' }}>
+            {tabOptions.map((tab) => (
+              <button
+                key={tab.id}
+                className={`tab-btn ${activeTab === tab.id ? 'active' : ''} ${tab.id === 'multi' ? 'opacity-40 cursor-not-allowed' : ''}`}
+                onClick={(e) => {
+                  if (tab.id === 'multi') { e.preventDefault(); setShowComingSoon(true); return; }
+                  setActiveTab(tab.id);
+                }}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-3" style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>
+            {[['#22c55e', 'Low'], ['#eab308', 'Med'], ['#ef4444', 'High']].map(([c, l]) => (
+              <span key={l} className="flex items-center gap-1">
+                <span style={{ width: 7, height: 7, borderRadius: '50%', background: c, display: 'inline-block', boxShadow: `0 0 5px ${c}99` }}></span>{l}
+              </span>
+            ))}
+          </div>
         </div>
 
-        {/* From / Swap / To */}
-        <div className="search-fields-row">
+        {/* Origin / Destination Search Section */}
+        <div className="search-fields-row" style={{ marginBottom: '1rem', gap: '12px' }}>
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-medium text-text-muted tracking-wider uppercase">From</label>
             <input type="text" value={from} onChange={(e) => setFrom(e.target.value)} placeholder="City or Airport" className="sky-input" />
@@ -52,15 +265,72 @@ export default function SearchCard({ onSearch }) {
           </div>
         </div>
 
-        {/* Date / Passengers / Class / Search */}
-        <div className="search-bottom-row">
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-text-muted tracking-wider uppercase">Departure</label>
-            <input type="date" value={depart} onChange={(e) => setDepart(e.target.value)} className="sky-input" style={{ colorScheme: 'dark' }} />
+        {/* Search Metadata (Dates, Passengers, Class) */}
+        <div className="search-bottom-row" style={{ gap: '12px' }}>
+          <div className="flex flex-col gap-1.5 relative" ref={departRef}>
+            <label className="text-xs font-medium text-text-muted tracking-wider uppercase">
+              Departure
+            </label>
+            <div className="relative">
+              <input
+                type="text"
+                readOnly
+                value={depart}
+                onClick={() => setShowDepartCal(!showDepartCal)}
+                className="sky-input cursor-pointer w-full pr-10"
+                style={{ colorScheme: 'dark' }}
+              />
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
+                <div
+                  style={{
+                    background: getDemandColorForDate(depart),
+                    width: 10,
+                    height: 10,
+                    borderRadius: '50%',
+                    boxShadow: '0 0 8px rgba(0,0,0,0.5)'
+                  }}
+                  title="Selected Demand Level"
+                />
+              </div>
+            </div>
+            {showDepartCal && (
+              <CustomCalendar value={depart} onChange={setDepart} onClose={() => setShowDepartCal(false)} />
+            )}
           </div>
-          <div className="flex flex-col gap-1.5" style={{ opacity: activeTab === 'one-way' ? 0.4 : 1, pointerEvents: activeTab === 'one-way' ? 'none' : 'auto' }}>
+          <div
+            className="flex flex-col gap-1.5 relative"
+            ref={returnRef}
+            style={{
+              opacity: activeTab === 'one-way' ? 0.4 : 1,
+              pointerEvents: activeTab === 'one-way' ? 'none' : 'auto'
+            }}
+          >
             <label className="text-xs font-medium text-text-muted tracking-wider uppercase">Return</label>
-            <input type="date" value={returnDate} onChange={(e) => setReturnDate(e.target.value)} className="sky-input" style={{ colorScheme: 'dark' }} />
+            <div className="relative">
+              <input
+                type="text"
+                readOnly
+                value={returnDate}
+                onClick={() => setShowReturnCal(!showReturnCal)}
+                className="sky-input cursor-pointer w-full pr-10"
+                style={{ colorScheme: 'dark' }}
+              />
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
+                <div
+                  style={{
+                    background: getDemandColorForDate(returnDate),
+                    width: 10,
+                    height: 10,
+                    borderRadius: '50%',
+                    boxShadow: '0 0 8px rgba(0,0,0,0.5)'
+                  }}
+                  title="Selected Demand Level"
+                />
+              </div>
+            </div>
+            {showReturnCal && (
+              <CustomCalendar value={returnDate} onChange={setReturnDate} onClose={() => setShowReturnCal(false)} />
+            )}
           </div>
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-medium text-text-muted tracking-wider uppercase">Passengers</label>
@@ -76,7 +346,10 @@ export default function SearchCard({ onSearch }) {
             </select>
           </div>
           <button onClick={handleSearch} className="search-cta">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <circle cx="11" cy="11" r="8" />
+              <path d="m21 21-4.35-4.35" />
+            </svg>
             Search
           </button>
         </div>

@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
+import toast from 'react-hot-toast'
 
 export default function SignIn() {
   const [mode, setMode] = useState('login') // 'login' | 'forgot-password' | 'forgot-email'
@@ -18,6 +19,10 @@ export default function SignIn() {
   const location = useLocation()
   const redirectTo = location.state?.from || '/'
   const bookingState = location.state?.bookingState || null
+
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [])
 
   const handleLogin = async (e) => {
     e.preventDefault()
@@ -44,8 +49,24 @@ export default function SignIn() {
     setLoading(true)
     const result = await forgotPassword(email)
     setLoading(false)
-    if (result.success) setSuccessMsg(result.message)
-    else setError(result.error)
+    if (result.success) {
+      toast.success(result.message, { icon: '📧' })
+      if (result.previewUrl) {
+        toast((t) => (
+          <span>
+            <b>Live Recovery Preview:</b> Reset link generated!
+            <button 
+              onClick={() => { window.open(result.previewUrl, '_blank'); toast.dismiss(t.id); }}
+              style={{ marginLeft: '10px', background: '#f5a623', border: 'none', padding: '5px 10px', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold' }}
+            >
+              View Reset Email ↗
+            </button>
+          </span>
+        ), { duration: 10000 });
+      }
+    } else {
+      setError(result.error)
+    }
   }
 
   const handleForgotEmail = async (e) => {
@@ -55,21 +76,63 @@ export default function SignIn() {
     setLoading(true)
     const result = await forgotEmail(phone)
     setLoading(false)
-    if (result.success) setSuccessMsg(result.message)
-    else setError(result.error)
+    if (result.success) {
+      toast.success(result.message, { icon: '📱' })
+      if (result.previewUrl) {
+        toast((t) => (
+          <span>
+            <b>Live Account Recovery:</b> Details sent to phone & email!
+            <button 
+              onClick={() => { window.open(result.previewUrl, '_blank'); toast.dismiss(t.id); }}
+              style={{ marginLeft: '10px', background: '#f5a623', border: 'none', padding: '5px 10px', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold' }}
+            >
+              View Recovery Email ↗
+            </button>
+          </span>
+        ), { duration: 10000 });
+      }
+      if (result.hint) toast(`Email Hint: ${result.hint}`, { duration: 6000 })
+    } else {
+      setError(result.error)
+    }
+  }
+
+  const navigateToForgotPassword = () => {
+    setMode('forgot-password')
+    setError('')
+    setSuccessMsg('')
+  }
+
+  const navigateToForgotEmail = () => {
+    setMode('forgot-email')
+    setError('')
+    setSuccessMsg('')
+  }
+
+  const navigateToLogin = () => {
+    setMode('login')
+    setError('')
+    setSuccessMsg('')
   }
 
   return (
     <>
       <Navbar />
-      <section className="relative z-10" style={{ padding: '5rem 0 4rem', minHeight: '80vh', display: 'flex', alignItems: 'center' }}>
-        <div className="container-main" style={{ maxWidth: 480, margin: '0 auto' }}>
+      <section className="relative z-10" style={{ padding: '2rem 0 3rem', minHeight: 'calc(100vh - 100px)', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+        <div className="container-main w-full" style={{ maxWidth: 480, margin: '0 auto' }}>
+          {/* Back button */}
+          <button
+            onClick={() => navigate(-1)}
+            className="text-text-muted text-sm flex items-center gap-2 mb-4 bg-transparent border-none cursor-pointer hover:text-white transition-colors"
+          >
+            ← Back
+          </button>
           <div className="glass-card" style={{ padding: '2.5rem' }}>
 
             {/* Logo */}
-            <div className="text-center mb-6">
+            <div className="text-center mb-8">
               <div className="w-14 h-14 bg-accent rounded-2xl flex items-center justify-center text-2xl mx-auto mb-3">✈</div>
-              <h1 className="font-syne text-2xl font-bold mb-1">
+              <h1 className="font-syne text-2xl font-bold mb-2">
                 {mode === 'login' && 'Welcome Back'}
                 {mode === 'forgot-password' && 'Reset Password'}
                 {mode === 'forgot-email' && 'Recover Email'}
@@ -87,13 +150,8 @@ export default function SignIn() {
                 {error}
               </div>
             )}
-            {successMsg && (
-              <div className="rounded-xl px-4 py-3 mb-4 text-sm" style={{ background: 'rgba(34,208,122,0.1)', border: '1px solid rgba(34,208,122,0.3)', color: '#22d07a' }}>
-                {successMsg}
-              </div>
-            )}
 
-            {/* ── Login Form ── */}
+            {/* Login Form */}
             {mode === 'login' && (
               <form onSubmit={handleLogin} className="flex flex-col gap-4">
                 <div className="flex flex-col gap-1.5">
@@ -112,10 +170,10 @@ export default function SignIn() {
 
                 {/* Forgot links */}
                 <div className="flex justify-between text-xs">
-                  <button type="button" onClick={() => { setMode('forgot-password'); setError(''); setSuccessMsg('') }} className="bg-transparent border-none text-accent cursor-pointer hover:underline p-0">
+                  <button type="button" onClick={navigateToForgotPassword} className="bg-transparent border-none text-accent cursor-pointer hover:underline p-0">
                     Forgot Password?
                   </button>
-                  <button type="button" onClick={() => { setMode('forgot-email'); setError(''); setSuccessMsg('') }} className="bg-transparent border-none text-accent cursor-pointer hover:underline p-0">
+                  <button type="button" onClick={navigateToForgotEmail} className="bg-transparent border-none text-accent cursor-pointer hover:underline p-0">
                     Forgot Email?
                   </button>
                 </div>
@@ -137,7 +195,7 @@ export default function SignIn() {
               </form>
             )}
 
-            {/* ── Forgot Password Form ── */}
+            {/* Forgot Password Form */}
             {mode === 'forgot-password' && (
               <form onSubmit={handleForgotPassword} className="flex flex-col gap-4">
                 <div className="flex flex-col gap-1.5">
@@ -147,23 +205,23 @@ export default function SignIn() {
                 <button type="submit" className="confirm-btn" disabled={loading}>
                   {loading ? 'Sending...' : 'Send Reset Link →'}
                 </button>
-                <button type="button" onClick={() => { setMode('login'); setError(''); setSuccessMsg('') }} className="bg-transparent border-none text-accent text-sm cursor-pointer hover:underline mt-1">
+                <button type="button" onClick={navigateToLogin} className="bg-transparent border-none text-accent text-sm cursor-pointer hover:underline mt-1">
                   ← Back to Sign In
                 </button>
               </form>
             )}
 
-            {/* ── Forgot Email Form ── */}
+            {/* Forgot Email Form */}
             {mode === 'forgot-email' && (
               <form onSubmit={handleForgotEmail} className="flex flex-col gap-4">
                 <div className="flex flex-col gap-1.5">
                   <label className="text-xs font-medium text-text-muted tracking-wider uppercase">Phone Number</label>
-                  <input type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="Enter your registered phone" className="sky-input" />
+                  <input type="tel" value={phone} onChange={e => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))} placeholder="Enter 10-digit phone" className="sky-input" maxLength={10} />
                 </div>
                 <button type="submit" className="confirm-btn" disabled={loading}>
                   {loading ? 'Searching...' : 'Find My Email →'}
                 </button>
-                <button type="button" onClick={() => { setMode('login'); setError(''); setSuccessMsg('') }} className="bg-transparent border-none text-accent text-sm cursor-pointer hover:underline mt-1">
+                <button type="button" onClick={navigateToLogin} className="bg-transparent border-none text-accent text-sm cursor-pointer hover:underline mt-1">
                   ← Back to Sign In
                 </button>
               </form>

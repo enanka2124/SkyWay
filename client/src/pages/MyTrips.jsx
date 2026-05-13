@@ -1,18 +1,98 @@
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
+import PageHero from '../components/PageHero'
+
+const cityImages = {
+  'Mumbai': 'https://images.unsplash.com/photo-1570168007204-dfb528c6958f?w=400&q=80',
+  'Goa': 'https://images.unsplash.com/photo-1512343879784-a960bf40e7f2?w=400&q=80',
+  'Delhi': 'https://images.unsplash.com/photo-1587474260584-136574528ed5?w=400&q=80',
+  'Bangalore': 'https://images.unsplash.com/photo-1596176530529-78163a4f7af2?w=400&q=80',
+  'Chennai': 'https://images.unsplash.com/photo-1582510003544-4d00b7f74220?w=400&q=80',
+  'Dubai': 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=400&q=80',
+  'Jaipur': 'https://images.unsplash.com/photo-1599661046289-e31897846e41?w=400&q=80',
+  'Kolkata': 'https://images.unsplash.com/photo-1558431382-27e303142255?w=400&q=80',
+  'Hyderabad': 'https://images.unsplash.com/photo-1578683010236-d716f9a3f461?w=400&q=80',
+  'Manali': 'https://images.unsplash.com/photo-1626621341517-bbf3d9990a23?w=400&q=80',
+  'Singapore': 'https://images.unsplash.com/photo-1525625293386-3f8f99389edd?w=400&q=80',
+  'Bangkok': 'https://images.unsplash.com/photo-1508009603885-50cf7c579365?w=400&q=80',
+  'Udaipur': 'https://images.unsplash.com/photo-1524492412937-b28074a5d7da?w=400&q=80',
+  'Pune': 'https://images.unsplash.com/photo-1571896349842-33c89424de2d?w=400&q=80',
+  'Ahmedabad': 'https://images.unsplash.com/photo-1582719508461-905c673771fd?w=400&q=80',
+  'London': 'https://images.unsplash.com/photo-1513635269975-5969336cd190?w=400&q=80',
+  'New York': 'https://images.unsplash.com/photo-1496442226666-8d4d0e62e6e9?w=400&q=80',
+  'Paris': 'https://images.unsplash.com/photo-1502602898657-3e907a5ea071?w=400&q=80',
+  'Tokyo': 'https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?w=400&q=80',
+  'Bali': 'https://images.unsplash.com/photo-1537996194471-e657df975ab4?w=400&q=80',
+  'Colombo': 'https://images.unsplash.com/photo-1588668214407-6ea9a6d8c272?w=400&q=80',
+  'Kathmandu': 'https://images.unsplash.com/photo-1581403067825-7bdf9c6e5c9b?w=400&q=80',
+  'Surat': 'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=400&q=80',
+  'Lucknow': 'https://images.unsplash.com/photo-1551882547-ff40c63fe5fa?w=400&q=80',
+  'Kanpur': 'https://images.unsplash.com/photo-1590490360182-c33d57733427?w=400&q=80',
+  'Nagpur': 'https://images.unsplash.com/photo-1582719508461-905c673771fd?w=400&q=80',
+  'Indore': 'https://images.unsplash.com/photo-1571003123894-1f0594d2b5d9?w=400&q=80',
+  'Bhopal': 'https://images.unsplash.com/photo-1625244724120-1fd1d34d00f6?w=400&q=80',
+  'Visakhapatnam': 'https://images.unsplash.com/photo-1520250497591-112f2f40a3f4?w=400&q=80',
+  'Patna': 'https://images.unsplash.com/photo-1445019980597-93fa8acb246c?w=400&q=80',
+  'Vadodara': 'https://images.unsplash.com/photo-1584132967334-10e028bd69f7?w=400&q=80',
+  'Ludhiana': 'https://images.unsplash.com/photo-1618773928121-c32242e63f39?w=400&q=80',
+  'Agra': 'https://images.unsplash.com/photo-1596394516093-501ba68a0ba6?w=400&q=80',
+  'Nashik': 'https://images.unsplash.com/photo-1542314831-068cd1dbfeeb?w=400&q=80',
+  'Rajkot': 'https://images.unsplash.com/photo-1455587734955-081b22074882?w=400&q=80',
+  'Varanasi': 'https://images.unsplash.com/photo-1631049307264-da0ec9d70304?w=400&q=80',
+  'Srinagar': 'https://images.unsplash.com/photo-1571896349842-33c89424de2d?w=400&q=80',
+  'Aurangabad': 'https://images.unsplash.com/photo-1564501049412-61c2a3083791?w=400&q=80',
+  'Amritsar': 'https://images.unsplash.com/photo-1578683010236-d716f9a3f461?w=400&q=80',
+  'Allahabad': 'https://images.unsplash.com/photo-1611892440504-42a792e24d32?w=400&q=80',
+  'Ranchi': 'https://images.unsplash.com/photo-1596178065887-1198b6148b2b?w=400&q=80',
+  'Coimbatore': 'https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?w=400&q=80',
+  'Jabalpur': 'https://images.unsplash.com/photo-1512918728675-ed5a9ecdebfd?w=400&q=80',
+  'Gwalior': 'https://images.unsplash.com/photo-1522798514-97ceb8c4f1c8?w=400&q=80',
+  'Vijayawada': 'https://images.unsplash.com/photo-1525625293386-3f8f99389edd?w=400&q=80',
+  'Jodhpur': 'https://images.unsplash.com/photo-1587474260584-136574528ed5?w=400&q=80',
+  'Madurai': 'https://images.unsplash.com/photo-1599661046289-e31897846e41?w=400&q=80',
+  'Raipur': 'https://images.unsplash.com/photo-1600011689032-8b628b8a8747?w=400&q=80',
+  'Kota': 'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=400&q=80',
+  'Guwahati': 'https://images.unsplash.com/photo-1551882547-ff40c63fe5fa?w=400&q=80',
+  'Chandigarh': 'https://images.unsplash.com/photo-1590490360182-c33d57733427?w=400&q=80',
+  'Mysore': 'https://images.unsplash.com/photo-1582719508461-905c673771fd?w=400&q=80',
+  'Tiruchirappalli': 'https://images.unsplash.com/photo-1571003123894-1f0594d2b5d9?w=400&q=80',
+  'Bhubaneswar': 'https://images.unsplash.com/photo-1625244724120-1fd1d34d00f6?w=400&q=80',
+  'Thiruvananthapuram': 'https://images.unsplash.com/photo-1520250497591-112f2f40a3f4?w=400&q=80',
+  'Kochi': 'https://images.unsplash.com/photo-1445019980597-93fa8acb246c?w=400&q=80',
+  'Dehradun': 'https://images.unsplash.com/photo-1584132967334-10e028bd69f7?w=400&q=80',
+  'Mangalore': 'https://images.unsplash.com/photo-1618773928121-c32242e63f39?w=400&q=80',
+  'Tirupati': 'https://images.unsplash.com/photo-1596394516093-501ba68a0ba6?w=400&q=80'
+};
+
+const getTripImage = (trip) => {
+  if (trip.type === 'hotel' && trip.hotel?.image) return trip.hotel.image;
+  const dest = trip.type === 'hotel' ? trip.hotel?.city : trip.flight?.to;
+  if (dest) {
+    for (const [city, url] of Object.entries(cityImages)) {
+      if (dest.toLowerCase().includes(city.toLowerCase())) return url;
+    }
+  }
+  return null;
+};
 
 export default function MyTrips() {
+  const { user, loading } = useAuth()
   const [trips, setTrips] = useState([])
   const [filter, setFilter] = useState('all')
   const [cancellingId, setCancellingId] = useState(null)
   const [cancelConfirm, setCancelConfirm] = useState(null) // trip index to confirm cancel
+  const [viewDetails, setViewDetails] = useState(null) // trip object for details modal
 
   useEffect(() => {
     const stored = JSON.parse(localStorage.getItem('skyway_trips') || '[]')
     setTrips(stored)
   }, [])
+
+  if (loading) return null;
+  if (!user) return <Navigate to="/signin" replace />;
 
   const clearTrips = () => {
     if (confirm('Clear all trip history?')) {
@@ -52,15 +132,18 @@ export default function MyTrips() {
   return (
     <>
       <Navbar />
-      <section className="relative z-10" style={{ padding: '4rem 0 4rem' }}>
+      <PageHero
+        line1="My"
+        line2="Trips"
+        badge="Booking History"
+        subtitle="View, manage, or cancel your upcoming and past bookings."
+        inlineTitle={true}
+      />
+      <section className="relative z-10" style={{ padding: '0 0 4rem' }}>
         <div className="container-main">
-          <h1 className="font-syne text-[clamp(2rem,5vw,3.5rem)] font-[800] text-center mb-2">
-            My <span className="text-accent">Trips</span>
-          </h1>
-          <p className="text-text-muted text-center mb-10 text-lg">Your booking history</p>
 
           {trips.length > 0 && (
-            <div className="flex items-center justify-between mb-8 flex-wrap gap-3" style={{ maxWidth: 800, margin: '0 auto 2rem' }}>
+            <div className="flex items-center justify-between mb-12 flex-wrap gap-3" style={{ maxWidth: 800, margin: '0 auto 3rem' }}>
               <div className="filter-group">
                 {['all', 'flight', 'hotel'].map(f => (
                   <button key={f} className={`filter-btn ${filter === f ? 'active' : ''}`} onClick={() => setFilter(f)}>
@@ -76,10 +159,14 @@ export default function MyTrips() {
             <div className="text-center py-16">
               <div className="text-6xl mb-4">🧳</div>
               <h3 className="font-syne text-xl font-bold mb-2">No trips yet</h3>
-              <p className="text-text-muted mb-6">Start by searching for flights or hotels</p>
+              <p className="text-text-muted mb-6">Start by searching for {filter === 'all' ? 'flights or hotels' : filter === 'flight' ? 'flights' : 'hotels'}</p>
               <div className="flex gap-3 justify-center">
-                <Link to="/" className="btn-accent no-underline px-6 py-3">Search Flights</Link>
-                <Link to="/hotels" className="btn-ghost no-underline px-6 py-3">Search Hotels</Link>
+                {(filter === 'all' || filter === 'flight') && (
+                  <Link to="/" className="btn-accent no-underline px-6 py-3">Search Flights</Link>
+                )}
+                {(filter === 'all' || filter === 'hotel') && (
+                  <Link to="/hotels" className="btn-ghost no-underline px-6 py-3">Search Hotels</Link>
+                )}
               </div>
             </div>
           ) : (
@@ -91,20 +178,45 @@ export default function MyTrips() {
                 return (
                   <div key={i} className="flight-card" style={{ opacity: isCancelled ? 0.6 : 1 }}>
                     <div className="flex items-start justify-between flex-wrap gap-3">
-                      <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 rounded-xl flex items-center justify-center text-xl" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}>
-                          {trip.type === 'flight' ? '✈' : '🏨'}
-                        </div>
+                      <div className="flex items-center gap-4">
+                        {(() => {
+                          const img = getTripImage(trip);
+                          return (
+                            <div className="rounded-xl flex items-center justify-center text-xl bg-cover bg-center overflow-hidden shrink-0" style={{ width: 80, height: 60, background: img ? `url('${img}') center/cover` : 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                              {!img && (trip.type === 'flight' ? '✈' : '🏨')}
+                            </div>
+                          );
+                        })()}
                         <div>
                           {trip.type === 'flight' ? (
                             <>
-                              <div className="font-syne font-bold text-lg">{trip.flight?.from} → {trip.flight?.to}</div>
-                              <div className="text-sm text-text-muted">{trip.flight?.airline} · {trip.flight?.dep} - {trip.flight?.arr}</div>
+                              <div className="font-syne font-bold text-lg">
+                                {trip.flight?.title ? trip.flight.title : `${trip.flight?.from} ${trip.flight?.tripType === 'round' ? '⇄' : '→'} ${trip.flight?.to}`}
+                              </div>
+                              <div className="text-sm text-text-muted mt-1">
+                                <div className="mb-0.5">
+                                  {trip.flight?.tripType === 'round' && <span className="font-medium text-white/80">Outbound: </span>}
+                                  {trip.flight?.description ? trip.flight.description : `${trip.flight?.airline} · ${trip.flight?.dep} - ${trip.flight?.arr}`}
+                                  <span className="ml-1">· {new Date(trip.flight?.searchedDate || trip.bookedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                                </div>
+                                {trip.flight?.tripType === 'round' && trip.flight?.returnDate && (
+                                  <div>
+                                    <span className="font-medium text-white/80">Return ({trip.flight?.to?.split(',')[0]} → {trip.flight?.from?.split(',')[0]}): </span> 
+                                    {trip.flight?.airline} · {trip.flight?.arr} - {trip.flight?.dep}
+                                    <span className="ml-1">· {new Date(trip.flight.returnDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                                  </div>
+                                )}
+                              </div>
                             </>
                           ) : (
                             <>
                               <div className="font-syne font-bold text-lg">{trip.hotel?.name}</div>
-                              <div className="text-sm text-text-muted">{trip.hotel?.city} · {trip.checkin} → {trip.checkout}</div>
+                              <div className="text-sm text-text-muted mt-1">
+                                {trip.hotel?.city}
+                                {(trip.checkin || trip.searchInfo?.checkin) && (trip.checkout || trip.search.Info?.checkout) && (
+                                  <span> · {new Date(trip.checkin || trip.searchInfo.checkin).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })} (2 PM) → {new Date(trip.checkout || trip.searchInfo.checkout).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })} (11 AM)</span>
+                                )}
+                              </div>
                             </>
                           )}
                         </div>
@@ -119,7 +231,7 @@ export default function MyTrips() {
                     </div>
 
                     {/* Status + Cancel Row */}
-                    <div className="flex items-center justify-between mt-4 pt-3" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between mt-6 pt-4 gap-4" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
                       <div className="flex items-center gap-3">
                         {getStatusBadge(trip)}
                         {isCancelled && trip.cancelledAt && (
@@ -128,20 +240,35 @@ export default function MyTrips() {
                           </span>
                         )}
                       </div>
-                      {!isCancelled && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleCancelTrip(i) }}
-                          className="text-xs px-4 py-2 rounded-lg cursor-pointer font-medium transition-all"
+                      
+                      <div className="flex items-center gap-3">
+                        <button 
+                          className="text-xs px-5 py-2.5 rounded-lg cursor-pointer font-medium transition-all hover:bg-white/5"
                           style={{
-                            background: 'rgba(239,68,68,0.08)',
-                            border: '1px solid rgba(239,68,68,0.2)',
-                            color: '#ef4444',
+                            background: 'rgba(255,255,255,0.03)',
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            color: 'white',
                           }}
-                          disabled={isProcessing}
+                          onClick={() => setViewDetails(trip)}
                         >
-                          {isProcessing ? 'Cancelling...' : 'Cancel Booking'}
+                          View Details
                         </button>
-                      )}
+
+                        {!isCancelled && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleCancelTrip(i) }}
+                            className="text-xs px-5 py-2.5 rounded-lg cursor-pointer font-medium transition-all hover:bg-red-500/20"
+                            style={{
+                              background: 'rgba(239,68,68,0.08)',
+                              border: '1px solid rgba(239,68,68,0.2)',
+                              color: '#ef4444',
+                            }}
+                            disabled={isProcessing}
+                          >
+                            {isProcessing ? 'Cancelling...' : 'Cancel Booking'}
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )
@@ -151,7 +278,7 @@ export default function MyTrips() {
         </div>
       </section>
 
-      {/* ── Cancel Confirmation Modal ── */}
+      {/*  */}
       {cancelConfirm !== null && (
         <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setCancelConfirm(null) }}>
           <div className="modal-box" style={{ maxWidth: 440 }}>
@@ -161,12 +288,12 @@ export default function MyTrips() {
               <div className="w-16 h-16 rounded-full flex items-center justify-center text-3xl mx-auto" style={{ background: 'rgba(239,68,68,0.1)', border: '2px solid rgba(239,68,68,0.3)', marginBottom: '1.5rem' }}>
                 ⚠
               </div>
-              <h2 className="font-syne text-xl font-bold" style={{ marginBottom: '0.75rem' }}>Cancel Booking?</h2>
+              <h2 className="font-syne text-xl font-bold text-accent" style={{ marginBottom: '1rem' }}>Cancel Booking?</h2>
               <p className="text-text-muted text-sm" style={{ marginBottom: '1.5rem' }}>
                 Are you sure you want to cancel this {trips[cancelConfirm]?.type === 'flight' ? 'flight' : 'hotel'} booking?
                 {trips[cancelConfirm]?.type === 'flight' ? (
                   <span className="block mt-2 font-medium text-white">
-                    {trips[cancelConfirm]?.flight?.from} → {trips[cancelConfirm]?.flight?.to}
+                    {trips[cancelConfirm]?.flight?.title ? trips[cancelConfirm].flight.title : `${trips[cancelConfirm]?.flight?.from} → ${trips[cancelConfirm]?.flight?.to}`}
                   </span>
                 ) : (
                   <span className="block mt-2 font-medium text-white">
@@ -218,6 +345,150 @@ export default function MyTrips() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/*  */}
+      {viewDetails && (
+        <div className="modal-overlay" style={{ zIndex: 100 }} onClick={e => { if (e.target === e.currentTarget) setViewDetails(null) }}>
+          <div className="modal-box p-0 flex flex-col max-h-[90vh]" style={{ maxWidth: 550, padding: 0 }}>
+            
+            <div className="p-6 border-b border-white/8 flex justify-between items-center">
+              <h3 className="font-syne text-2xl font-bold text-accent">Booking Details</h3>
+              <button onClick={() => setViewDetails(null)} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 text-text-muted transition-colors">
+                ✕
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto">
+              {/* Header Stats */}
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <div className="text-xs text-text-muted tracking-wider uppercase mb-1">Booking ID</div>
+                  <div className="font-syne font-bold text-lg">{viewDetails.ticketId || viewDetails.bookingId || '--'}</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-xs text-text-muted tracking-wider uppercase mb-1">Status</div>
+                  {getStatusBadge(viewDetails)}
+                </div>
+              </div>
+
+              {/* Primary Info */}
+              <div className="rounded-xl p-5 mb-6" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                {viewDetails.type === 'flight' || viewDetails.type === 'deal' ? (
+                  <>
+                    <div className="flex items-center gap-3 mb-4 text-accent font-bold"><span className="text-xl">✈</span> Flight</div>
+                    <div className="flex gap-4 items-start mb-4">
+                      {(() => {
+                        const img = getTripImage(viewDetails);
+                        if (!img) return null;
+                        return <div className="rounded-xl bg-cover bg-center shrink-0 overflow-hidden" style={{ width: 80, height: 60, backgroundImage: `url('${img}')` }}></div>;
+                      })()}
+                      <div className="flex-1">
+                        <div className="font-syne text-xl font-bold mb-1">
+                          {viewDetails.flight?.title ? viewDetails.flight.title : `${viewDetails.flight?.from} → ${viewDetails.flight?.to}`}
+                        </div>
+                        <div className="text-sm text-text-muted">
+                          {viewDetails.flight?.description ? viewDetails.flight.description : `${viewDetails.flight?.airline} · Outbound · ${viewDetails.flight?.dep} - ${viewDetails.flight?.arr}`}
+                        </div>
+                      </div>
+                    </div>
+                    {viewDetails.flight?.tripType === 'round' && viewDetails.flight?.returnDate && (
+                      <div className="flex gap-4 items-start mb-4 pt-4 border-t border-white/8">
+                         <div className="flex-1 text-right">
+                           <div className="font-syne text-xl font-bold mb-1">
+                             {viewDetails.flight?.to} → {viewDetails.flight?.from}
+                           </div>
+                           <div className="text-sm text-text-muted">
+                             {viewDetails.flight?.airline} · Return Flight · {viewDetails.flight?.arr} - {viewDetails.flight?.dep}
+                           </div>
+                         </div>
+                      </div>
+                    )}
+                    <div className="flex justify-between border-t border-white/8 pt-4 mt-2">
+                      <div>
+                        <div className="text-xs text-text-muted tracking-wider uppercase mb-1">{viewDetails.flight?.tripType === 'round' ? 'Departure Date' : 'Date'}</div>
+                        <div className="font-medium text-sm text-accent">
+                          {new Date(viewDetails.flight?.searchedDate || viewDetails.bookedAt).toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}
+                        </div>
+                      </div>
+                      {viewDetails.flight?.tripType === 'round' && viewDetails.flight?.returnDate && (
+                        <div className="text-right">
+                          <div className="text-xs text-text-muted tracking-wider uppercase mb-1">Return Date</div>
+                          <div className="font-medium text-sm text-accent">
+                            {new Date(viewDetails.flight.returnDate).toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-3 mb-4 text-accent font-bold"><span className="text-xl">🏨</span> Hotel Stay</div>
+                    <div className="flex gap-4 items-start">
+                      {viewDetails.hotel?.image && (
+                        <div className="rounded-xl bg-cover bg-center shrink-0 overflow-hidden" style={{ width: 80, height: 60, backgroundImage: `url('${viewDetails.hotel.image}')` }}></div>
+                      )}
+                      <div>
+                        <div className="font-syne text-xl font-bold mb-1">{viewDetails.hotel?.name}</div>
+                        <div className="text-sm text-text-muted mb-4">📍 {viewDetails.hotel?.city}</div>
+                      </div>
+                    </div>
+                    
+                    <div className="flex justify-between gap-4 border-t border-white/8 pt-4 mt-2">
+                      <div>
+                        <div className="text-xs text-text-muted tracking-wider uppercase mb-1">Check-in</div>
+                        <div className="font-medium text-sm text-accent">
+                          {(viewDetails.checkin || viewDetails.searchInfo?.checkin) ? `${new Date(viewDetails.checkin || viewDetails.searchInfo.checkin).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })} (2:00 PM)` : '--'}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xs text-text-muted tracking-wider uppercase mb-1">Check-out</div>
+                        <div className="font-medium text-sm text-accent">
+                          {(viewDetails.checkout || viewDetails.searchInfo?.checkout) ? `${new Date(viewDetails.checkout || viewDetails.searchInfo.checkout).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })} (11:00 AM)` : '--'}
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Pricing Info */}
+              <div>
+                <h4 className="text-sm font-bold mb-3 text-accent">Payment Summary</h4>
+                <div className="space-y-2 text-sm text-text-muted mb-4">
+                  <div className="flex justify-between">
+                    <span>Base Fare</span>
+                    <span>₹{(viewDetails.pricing?.base || Math.round((viewDetails.pricing?.total || viewDetails.totalPrice || 0) * 0.85)).toLocaleString('en-IN')}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Taxes & Fees</span>
+                    <span>₹{((viewDetails.pricing?.taxes || 0) + (viewDetails.pricing?.fee || 0) || Math.round((viewDetails.pricing?.total || viewDetails.totalPrice || 0) * 0.15)).toLocaleString('en-IN')}</span>
+                  </div>
+                  {viewDetails.pricing?.discount > 0 && (
+                    <div className="flex justify-between text-green-400">
+                      <span>Discount</span>
+                      <span>-₹{viewDetails.pricing?.discount?.toLocaleString('en-IN')}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between pt-2 mt-2" style={{ borderTop: '1px dashed rgba(255,255,255,0.1)' }}>
+                    <span>Payment Method</span>
+                    <span className="font-medium">{viewDetails.paymentMethod === 'upi' ? 'UPI' : 'Credit/Debit Card'}</span>
+                  </div>
+                </div>
+                <div className="flex justify-between border-t border-white/8 pt-3 font-bold text-lg text-white">
+                  <span>Total Paid</span>
+                  <span className="text-accent">₹{viewDetails.pricing?.total?.toLocaleString('en-IN') || viewDetails.totalPrice?.toLocaleString('en-IN')}</span>
+                </div>
+              </div>
+
+            </div>
+            
+            <div className="p-5 border-t border-white/8 bg-black/20 text-center">
+              <button onClick={() => setViewDetails(null)} className="btn-ghost w-full py-3 text-sm">Close Details</button>
+            </div>
+            
           </div>
         </div>
       )}

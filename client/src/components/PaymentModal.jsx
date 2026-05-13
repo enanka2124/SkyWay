@@ -7,6 +7,7 @@ export default function PaymentModal({ amount, bookingInfo, onSuccess, onClose }
   const [cvv, setCvv] = useState('')
   const [cardName, setCardName] = useState('')
   const [upiId, setUpiId] = useState('')
+  const [bank, setBank] = useState('')
   const [processing, setProcessing] = useState(false)
   const [status, setStatus] = useState(null) // null, 'processing', 'success', 'failed'
 
@@ -23,10 +24,12 @@ export default function PaymentModal({ amount, bookingInfo, onSuccess, onClose }
 
   const isFormValid = () => {
     if (method === 'card') {
-      return cardNumber.replace(/\s/g, '').length === 16 && expiry.length === 5 && cvv.length >= 3 && cardName.trim()
+      const isExpValid = /^(0[1-9]|1[0-2])\/\d{2}$/.test(expiry)
+      return cardNumber.replace(/\s/g, '').length === 16 && isExpValid && cvv.length >= 3 && cardName.trim().length >= 3
     }
-    if (method === 'upi') return upiId.includes('@')
-    return true
+    if (method === 'upi') return /^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$/.test(upiId)
+    if (method === 'netbanking') return bank !== ''
+    return false
   }
 
   const handlePay = async () => {
@@ -41,23 +44,23 @@ export default function PaymentModal({ amount, bookingInfo, onSuccess, onClose }
       const data = await res.json()
       if (data.success) {
         setStatus('success')
-        setTimeout(() => onSuccess(data), 1500)
+        setTimeout(() => onSuccess({ ...data, method }), 1500)
       } else {
         setStatus('failed')
       }
     } catch {
       // Simulate success even if API fails
       setStatus('success')
-      setTimeout(() => onSuccess({ paymentId: 'pay_' + Math.random().toString(36).substr(2, 10).toUpperCase(), orderId: 'order_SIM' }), 1500)
+      setTimeout(() => onSuccess({ paymentId: 'pay_' + Math.random().toString(36).substr(2, 10).toUpperCase(), orderId: 'order_SIM', method }), 1500)
     }
   }
 
   return (
-    <div className="modal-overlay" style={{ zIndex: 1100 }} onClick={e => { if (e.target === e.currentTarget && !processing) onClose() }}>
-      <div className="modal-box" style={{ maxWidth: 440 }}>
+    <div className="w-full flex justify-center py-4">
+      <div className="glass-card w-full" style={{ maxWidth: 540, padding: '2rem 2.5rem' }}>
         {!processing ? (
           <>
-            <button className="modal-close" onClick={onClose}>✕</button>
+            <button className="text-text-muted hover:text-white mb-6 text-sm flex items-center gap-2 bg-transparent border-none cursor-pointer" onClick={onClose}>← Back to details</button>
 
             {/* Header */}
             <div className="flex items-center gap-3 mb-5">
@@ -109,7 +112,7 @@ export default function PaymentModal({ amount, bookingInfo, onSuccess, onClose }
                 </div>
                 <div>
                   <label className="text-xs text-text-muted mb-1 block">Cardholder Name</label>
-                  <input type="text" placeholder="Name on card" value={cardName} onChange={e => setCardName(e.target.value)} className="sky-input" />
+                  <input type="text" placeholder="Name on card" value={cardName} onChange={e => setCardName(e.target.value.replace(/[^a-zA-Z\s]/g, ''))} className="sky-input" maxLength={50} />
                 </div>
               </div>
             )}
@@ -118,15 +121,15 @@ export default function PaymentModal({ amount, bookingInfo, onSuccess, onClose }
             {method === 'upi' && (
               <div>
                 <label className="text-xs text-text-muted mb-1 block">UPI ID</label>
-                <input type="text" placeholder="yourname@upi" value={upiId} onChange={e => setUpiId(e.target.value)} className="sky-input" />
+                <input type="text" placeholder="yourname@upi" value={upiId} onChange={e => setUpiId(e.target.value.replace(/[^a-zA-Z0-9.\-_@]/g, ''))} className="sky-input" maxLength={60} />
               </div>
             )}
 
             {/* Net Banking */}
             {method === 'netbanking' && (
               <div className="grid grid-cols-2 gap-2">
-                {['SBI', 'HDFC', 'ICICI', 'Axis', 'Kotak', 'PNB'].map(bank => (
-                  <button key={bank} className="flight-card text-center py-3 text-sm hover:text-accent" onClick={() => {}}>{bank}</button>
+                {['SBI', 'HDFC', 'ICICI', 'Axis', 'Kotak', 'PNB'].map(b => (
+                  <button key={b} className="flight-card text-center py-3 text-sm hover:text-accent transition-all" style={{ background: bank === b ? 'rgba(245,166,35,0.12)' : '', borderColor: bank === b ? 'rgba(245,166,35,0.3)' : '' }} onClick={() => setBank(b)}>{b}</button>
                 ))}
               </div>
             )}

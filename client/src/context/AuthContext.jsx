@@ -6,13 +6,38 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
 
-  // Load user from localStorage on mount
+  // Load user from localStorage on mount and verify with server
   useEffect(() => {
-    const stored = localStorage.getItem('skyway_user')
-    if (stored) {
-      try { setUser(JSON.parse(stored)) } catch { /* corrupt data */ }
+    const checkAuth = async () => {
+      const stored = localStorage.getItem('skyway_user')
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored)
+          setUser(parsed)
+
+          // Verify with server if user still exists (e.g. if DB was cleared)
+          const res = await fetch('/api/auth/me', {
+            headers: { 'x-user-id': parsed._id }
+          })
+          const data = await res.json()
+          
+          if (!data.success) {
+            setUser(null)
+            localStorage.removeItem('skyway_user')
+          } else {
+            // Keep state in sync with server data
+            setUser(data.user)
+            localStorage.setItem('skyway_user', JSON.stringify(data.user))
+          }
+        } catch (err) {
+          localStorage.removeItem('skyway_user')
+          setUser(null)
+        }
+      }
+      setLoading(false)
     }
-    setLoading(false)
+    
+    checkAuth()
   }, [])
 
   const login = async (email, password) => {
@@ -27,7 +52,7 @@ export function AuthProvider({ children }) {
       localStorage.setItem('skyway_user', JSON.stringify(data.user))
       return { success: true }
     }
-    return { success: false, error: data.error }
+    return { success: false, error: data.error}
   }
 
   const register = async (formData) => {
@@ -39,9 +64,8 @@ export function AuthProvider({ children }) {
     if (data.success) {
       setUser(data.user)
       localStorage.setItem('skyway_user', JSON.stringify(data.user))
-      return { success: true }
     }
-    return { success: false, error: data.error }
+    return data;
   }
 
   const logout = () => {
@@ -67,8 +91,17 @@ export function AuthProvider({ children }) {
     return res.json()
   }
 
+  const resetPassword = async (token, password) => {
+    const res = await fetch(`/api/auth/reset-password/${token}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    })
+    return res.json()
+  }
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, forgotPassword, forgotEmail }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout, forgotPassword, forgotEmail, resetPassword }}>
       {children}
     </AuthContext.Provider>
   )

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
@@ -17,22 +17,21 @@ const pages = {
     title: 'Contact Us',
     isContact: true,
     info: [
-      { icon: '📧', label: 'Email', value: 'support@skyway.in', desc: 'We reply within 2 hours' },
-      { icon: '📞', label: 'Phone', value: '+91 1800-SKY-0000', desc: '24/7 toll-free support' },
-      { icon: '📍', label: 'Office', value: 'SkyWay Tower, BKC, Mumbai 400051', desc: 'Visit us Mon-Sat, 9am-6pm' },
-      { icon: '💬', label: 'Live Chat', value: 'Available on the app', desc: 'Instant help anytime' },
+      { icon: '📧', label: 'Email', value: 'enankanandi083@gmail.com', desc: 'We reply within 2 hours' },
+      { icon: '📞', label: 'Phone', value: '+91 8670403446', desc: '24/7 toll-free support' },
+      { icon: '📍', label: 'Office', value: 'Kolkata', desc: 'Visit us Mon-Sat, 9am-6pm' },
     ],
   },
   careers: {
     title: 'Careers',
     intro: 'Join us and help millions travel smarter. We\'re always looking for passionate people.',
     jobs: [
-      { title: 'Senior React Developer', dept: 'Engineering', location: 'Mumbai / Remote', type: 'Full-time' },
-      { title: 'Backend Engineer (Node.js)', dept: 'Engineering', location: 'Mumbai / Remote', type: 'Full-time' },
-      { title: 'Product Designer', dept: 'Design', location: 'Mumbai', type: 'Full-time' },
-      { title: 'Customer Support Lead', dept: 'Support', location: 'Delhi', type: 'Full-time' },
-      { title: 'Marketing Manager', dept: 'Marketing', location: 'Mumbai', type: 'Full-time' },
-      { title: 'Data Analyst', dept: 'Analytics', location: 'Remote', type: 'Contract' },
+      { id: 'SKY-2026-006', title: 'Data Analyst', dept: 'Analytics', location: 'Remote', type: 'Contract', exp: '2+ Years', postedDate: 'May 12, 2026' },
+      { id: 'SKY-2026-005', title: 'Marketing Manager', dept: 'Marketing', location: 'Mumbai', type: 'Full-time', exp: '3-5 Years', postedDate: 'May 11, 2026' },
+      { id: 'SKY-2026-004', title: 'Customer Support Lead', dept: 'Support', location: 'Delhi', type: 'Full-time', exp: '5+ Years', postedDate: 'May 10, 2026' },
+      { id: 'SKY-2026-003', title: 'Product Designer', dept: 'Design', location: 'Mumbai', type: 'Full-time', exp: '2-4 Years', postedDate: 'May 08, 2026' },
+      { id: 'SKY-2026-002', title: 'Backend Engineer (Node.js)', dept: 'Engineering', location: 'Mumbai / Remote', type: 'Full-time', exp: '3+ Years', postedDate: 'May 05, 2026' },
+      { id: 'SKY-2026-001', title: 'Senior React Developer', dept: 'Engineering', location: 'Mumbai / Remote', type: 'Full-time', exp: '4+ Years', postedDate: 'May 02, 2026' },
     ],
   },
   help: {
@@ -103,6 +102,10 @@ export default function InfoPage({ page }) {
   const [contactForm, setContactForm] = useState({ name: '', email: '', subject: '', message: '' })
   const [contactSent, setContactSent] = useState(false)
 
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [page])
+
   if (!data) return <div className="container-main py-20 text-center"><h1>Page not found</h1></div>
 
   const handleContactSubmit = (e) => {
@@ -126,19 +129,21 @@ export default function InfoPage({ page }) {
       <Navbar />
       <section className="relative z-10" style={{ padding: '4rem 0 4rem' }}>
         <div className="container-main" style={{ maxWidth: 800 }}>
-          <h1 className="font-syne text-[clamp(2rem,5vw,3rem)] font-[800] mb-10">{data.title}</h1>
+          <h1 className="font-syne text-[clamp(2rem,5vw,3.2rem)] font-extrabold mb-10 text-accent leading-tight">
+            {data.title}
+          </h1>
 
           {/* Standard sections */}
           {data.sections?.map((sec, i) => (
-            <div key={i} className="mb-10">
-              <h2 className="font-syne text-xl font-bold mb-4 text-accent">{sec.heading}</h2>
-              {sec.content && <p className="text-text-muted leading-relaxed">{sec.content}</p>}
+            <div key={i} className="mb-12">
+              <h2 className="font-syne text-2xl font-bold mb-4 text-accent">{sec.heading}</h2>
+              {sec.content && <p className="text-text-muted leading-relaxed text-lg">{sec.content}</p>}
               {sec.list && (
-                <ul className="list-none flex flex-col gap-3 mt-3">
+                <ul className="list-none flex flex-col gap-3.5 mt-4">
                   {sec.list.map((item, j) => (
-                    <li key={j} className="text-text-muted flex items-start gap-2">
-                      <span className="text-accent text-sm mt-0.5">✦</span>
-                      <span>{item}</span>
+                    <li key={j} className="text-text-muted flex items-start gap-3">
+                      <span className="text-accent text-sm mt-1">✦</span>
+                      <span className="text-base">{item}</span>
                     </li>
                   ))}
                 </ul>
@@ -149,12 +154,12 @@ export default function InfoPage({ page }) {
           {/* Contact page */}
           {data.isContact && (
             <>
-              <div className="grid grid-cols-2 gap-5 mb-12" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+              <div className="grid grid-cols-2 gap-5 mb-16" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
                 {data.info.map((info, i) => (
-                  <div key={i} className="flight-card flex flex-col items-center text-center p-8">
+                  <div key={i} className="flight-card flex flex-col items-center text-center p-8 border-white/5 bg-white/3">
                     <div className="text-4xl mb-4">{info.icon}</div>
-                    <div className="font-syne font-bold text-lg mb-1.5">{info.label}</div>
-                    <div className="text-accent text-sm font-medium mb-2">{info.value}</div>
+                    <div className="font-syne font-bold text-lg mb-1.5 text-accent">{info.label}</div>
+                    <div className="text-white text-base font-medium mb-1">{info.value}</div>
                     <div className="text-xs text-text-muted mt-1">{info.desc}</div>
                   </div>
                 ))}
@@ -189,12 +194,20 @@ export default function InfoPage({ page }) {
                 {data.jobs.map((job, i) => (
                   <div key={i} className="flight-card flex items-center justify-between flex-wrap gap-3">
                     <div>
-                      <div className="font-syne font-bold text-lg">{job.title}</div>
-                      <div className="text-sm text-text-muted">{job.dept} · {job.location}</div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs font-medium px-2 py-0.5 rounded bg-white/5 text-text-muted border border-white/10">ID: {job.id}</span>
+                        <span className="text-xs text-text-muted">Posted: {job.postedDate}</span>
+                      </div>
+                      <div className="font-syne font-bold text-lg mb-1">{job.title}</div>
+                      <div className="text-sm text-text-muted flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
+                        <span>🏢 {job.dept}</span>
+                        <span>📍 {job.location}</span>
+                        <span>💼 {job.exp}</span>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-col items-end gap-3">
                       <span className="text-xs px-2 py-1 rounded badge-direct">{job.type}</span>
-                      <button className="btn-accent text-sm" onClick={() => alert(`Application for "${job.title}" — Feature coming soon!`)}>Apply →</button>
+                      <Link to={`/job-apply/${job.id}`} className="btn-accent text-sm px-5 py-2 no-underline rounded-lg font-medium inline-block text-center shadow-lg transition-transform hover:-translate-y-0.5" style={{ background: 'var(--color-accent)', color: '#0a1628' }}>Apply →</Link>
                     </div>
                   </div>
                 ))}
@@ -204,14 +217,14 @@ export default function InfoPage({ page }) {
 
           {/* FAQ */}
           {data.faqs && (
-            <div className="flex flex-col gap-3.5">
+            <div className="flex flex-col gap-4">
               {data.faqs.map((faq, i) => (
-                <div key={i} className="flight-card" style={{ cursor: 'pointer' }} onClick={() => setOpenFaq(openFaq === i ? null : i)}>
+                <div key={i} className="flight-card border-white/8 bg-white/2" style={{ cursor: 'pointer' }} onClick={() => setOpenFaq(openFaq === i ? null : i)}>
                   <div className="flex items-center justify-between">
-                    <div className="font-syne font-bold">{faq.q}</div>
-                    <span className="text-accent text-xl shrink-0 ml-4">{openFaq === i ? '−' : '+'}</span>
+                    <div className="font-syne font-bold text-accent text-lg">{faq.q}</div>
+                    <span className="text-accent text-2xl shrink-0 ml-4">{openFaq === i ? '−' : '+'}</span>
                   </div>
-                  {openFaq === i && <p className="text-text-muted mt-3 leading-relaxed text-sm">{faq.a}</p>}
+                  {openFaq === i && <p className="text-text-muted mt-4 leading-relaxed text-base">{faq.a}</p>}
                 </div>
               ))}
             </div>
@@ -226,7 +239,7 @@ export default function InfoPage({ page }) {
                 <input type="text" placeholder="e.g. SKY8F2KL or HTLAB1234" value={ticketLookup} onChange={e => setTicketLookup(e.target.value)} className="sky-input" style={{ flex: 1 }} />
                 <button className="btn-accent px-6" onClick={handleTicketLookup}>Look Up</button>
               </div>
-              <div className="mt-6 pt-4 border-t border-white/[0.08]">
+              <div className="mt-6 pt-4 border-t border-white/8">
                 <p className="text-sm text-text-muted">Can't find your booking? <Link to="/contact" className="text-accent no-underline">Contact Support</Link></p>
               </div>
             </div>

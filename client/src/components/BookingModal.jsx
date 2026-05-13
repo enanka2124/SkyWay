@@ -115,7 +115,7 @@ export default function BookingModal({ flight, isOpen, onClose }) {
                   <option value="">Select Nationality</option>
                   <option>Indian</option><option>American</option><option>British</option><option>UAE</option><option>Other</option>
                 </select>
-                <div className="border-t border-white/[0.08] pt-4 mt-2 flex flex-col gap-2">
+                <div className="border-t border-white/8 pt-4 mt-2 flex flex-col gap-2">
                   <div className="price-line"><span>Base fare</span><span>₹{flight.price.toLocaleString('en-IN')}</span></div>
                   <div className="price-line"><span>Taxes & fees (5%)</span><span>₹{taxes.toLocaleString('en-IN')}</span></div>
                   <div className="price-line"><span>Convenience fee</span><span>₹{convenienceFee}</span></div>

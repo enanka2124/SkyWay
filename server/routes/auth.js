@@ -1,140 +1,332 @@
 const express = require('express');
 const multer = require('multer');
+const nodemailer = require('nodemailer');
 const path = require('path');
 const fs = require('fs');
 const router = express.Router();
 
-// Ensure uploads directory exists
-const uploadsDir = path.join(__dirname, '..', 'uploads');
-if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+// --- Internal Modules ---
+const User = require('../models/User');
+const { PDFParse } = require('pdf-parse');
+const crypto = require('crypto');
+const { 
+  sendRegistrationEmail, 
+  sendResetPasswordEmail, 
+  sendRecoveryEmail 
+} = require('../utils/mailer');
 
-// Multer config for Aadhaar PDF
+// Ensure the uploads directory exists for ID proof storage
+const uploadsDir = path.join(__dirname, '..', 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+// --- File Upload Configuration ---
+// We use Multer to handle Aadhaar/Voter ID PDF uploads.
+// Files are given a unique timestamped name to avoid collisions.
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadsDir),
   filename: (req, file, cb) => {
-    const uniqueName = `aadhaar_${Date.now()}_${Math.random().toString(36).substr(2, 8)}${path.extname(file.originalname)}`;
-    cb(null, uniqueName);
+    const suffix = `${Date.now()}_${Math.random().toString(36).substr(2, 8)}`;
+    cb(null, `id_proof_${suffix}${path.extname(file.originalname)}`);
   },
 });
 
 const upload = multer({
   storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB Cap
   fileFilter: (req, file, cb) => {
     if (file.mimetype === 'application/pdf') {
       cb(null, true);
     } else {
-      cb(new Error('Only PDF files are allowed'), false);
+      cb(new Error('Only PDF documents are accepted'), false);
     }
   },
 });
 
-// In-memory user store (would be a database in production)
-const users = [];
+/**
+ * Utility: Wraps Multer middleware in a Promise.
+ * Necessary for cleaner async/await flow in route handlers.
+ */
+function runUpload(req, res) {
+  return new Promise((resolve, reject) => {
+    upload.single('aadhaarCard')(req, res, (err) => {
+      if (err) {
+        if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+          console.error(`[UPLOAD ERROR] Unexpected field received. Please check your Postman key name.`);
+          reject(new Error(`Unexpected field: Ensure your file key is exactly 'aadhaarCard'`));
+        } else {
+          reject(err);
+        }
+      } else {
+        resolve();
+      }
+    });
+  });
+}
 
-// POST /api/auth/register
-router.post('/register', upload.single('aadhaarCard'), (req, res) => {
+// --- Comm Services Removed (Using ../utils/mailer.js) ---
+
+// --- Authentication Routes ---
+
+/**
+ * POST /api/auth/register
+ * Handles multi-step registration with PDF document validation.
+ */
+router.post('/register', async (req, res) => {
+  // 1. Handle Multipart Data (File Upload)
+  try {
+    await runUpload(req, res);
+  } catch (uploadErr) {
+    return res.status(400).json({ success: false, error: uploadErr.message });
+  }
+
   try {
     const { firstName, lastName, email, phone, password, address, city, state, pincode } = req.body;
 
-    // Validation
+    // 2. Basic Validation
     if (!firstName || !lastName || !email || !phone || !password) {
-      return res.status(400).json({ success: false, error: 'All personal info fields are required' });
+      return res.status(400).json({ success: false, error: 'Personal details are missing' });
     }
-    if (!address || !city || !state || !pincode) {
-      return res.status(400).json({ success: false, error: 'All address fields are required' });
+
+    // We accept both 'pincode' and 'pinCode' for better compatibility
+    const finalPincode = pincode || req.body.pinCode;
+
+    if (!address || !city || !state || !finalPincode) {
+      return res.status(400).json({ success: false, error: 'Address details are incomplete' });
     }
     if (!req.file) {
-      return res.status(400).json({ success: false, error: 'Aadhaar card PDF is required' });
+      return res.status(400).json({ success: false, error: 'ID proof document is required' });
     }
 
-    // Check if email already exists
-    if (users.find(u => u.email.toLowerCase() === email.toLowerCase())) {
-      return res.status(409).json({ success: false, error: 'An account with this email already exists' });
+    // 3. Smart Document Verification (Filename Match)
+    // We check if the filename contains the user's name or keywords like 'aadhar' or 'voter'.
+    try {
+      const fileName = (req.file.originalname || '').toLowerCase();
+      const idKeywords = ['aadhar', 'aadhaar', 'voter', 'passport'];
+      const isFilenameValid = idKeywords.some(keyword => fileName.includes(keyword));
+
+      console.log(`[AUTH] ID Verification for ${firstName} ${lastName} - Filename: ${fileName} - Valid: ${isFilenameValid}`);
+
+      if (!isFilenameValid) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Invalid PDF'
+        });
+      }
+    } catch (err) {
+      console.error('[AUTH ERROR] ID verification logic failed:', err.message);
+      // We don't block the user if the logic itself crashes, but we log it.
     }
 
-    // Check if phone already exists
-    if (users.find(u => u.phone === phone)) {
-      return res.status(409).json({ success: false, error: 'An account with this phone number already exists' });
+
+    // 4. Duplicate Check
+    const emailConflict = await User.findOne({ email });
+    if (emailConflict) {
+      return res.status(409).json({ success: false, error: 'Email already in use' });
     }
 
-    const userId = 'USR' + Math.random().toString(36).substr(2, 8).toUpperCase();
-    const user = {
-      userId,
+    const phoneConflict = await User.findOne({ phone });
+    if (phoneConflict) {
+      return res.status(409).json({ success: false, error: 'Phone number already registered' });
+    }
+
+    // 5. Create User
+    const newUser = new User({
       firstName,
       lastName,
-      email: email.toLowerCase(),
+      email,
       phone,
-      password, // In production, hash this!
-      address: { address, city, state, pincode },
+      password,
+      address: { address, city, state, pincode: finalPincode },
       aadhaarFile: req.file.filename,
-      createdAt: new Date().toISOString(),
+    });
+
+    await newUser.save();
+    
+    // Send stylish registration success email
+    const mailInfo = await sendRegistrationEmail(newUser);
+    
+    // Simulate a Live Push Notification to the user's phone/dashboard
+    console.log(`\n[LIVE PUSH] New User Registered: ${newUser.firstName} ${newUser.lastName}`);
+    console.log(`[LIVE PUSH] Notification sent to ${newUser.phone}: "Welcome to SkyWay! Your account is active."\n`);
+
+    const previewUrl = mailInfo ? nodemailer.getTestMessageUrl(mailInfo) : null;
+
+    const userResponse = {
+      _id: newUser._id,
+      firstName: newUser.firstName,
+      lastName: newUser.lastName,
+      email: newUser.email,
+      phone: newUser.phone,
     };
+    
+    res.status(201).json({ 
+      success: true, 
+      message: 'Congratulations! Welcome aboard.', 
+      user: userResponse,
+      emailSent: !!mailInfo,
+      previewUrl // For developer testing
+    });
 
-    users.push(user);
-
-    // Return user info (without password)
-    const { password: _, ...safeUser } = user;
-    res.status(201).json({ success: true, message: 'Registration successful', user: safeUser });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message || 'Registration failed' });
+    res.status(500).json({ success: false, error: 'Internal system failure during registration' });
   }
 });
 
-// POST /api/auth/login
-router.post('/login', (req, res) => {
-  const { email, password } = req.body;
-  if (!email || !password) {
-    return res.status(400).json({ success: false, error: 'Email and password are required' });
-  }
+/**
+ * POST /api/auth/login
+ * Standard credential-based entry.
+ */
+router.post('/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ success: false, error: 'Credentials required' });
+    }
 
-  const user = users.find(u => u.email.toLowerCase() === email.toLowerCase());
-  if (!user) {
-    return res.status(401).json({ success: false, error: 'No account found with this email' });
-  }
-  if (user.password !== password) {
-    return res.status(401).json({ success: false, error: 'Incorrect password' });
-  }
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(401).json({ success: false, error: 'Invalid email or password' });
+    }
 
-  const { password: _, ...safeUser } = user;
-  res.json({ success: true, message: 'Login successful', user: safeUser });
+    const isMatch = await user.matchPassword(password);
+    if (!isMatch) {
+      return res.status(401).json({ success: false, error: 'Invalid email or password' });
+    }
+
+    const authResponse = {
+      _id: user._id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email,
+      phone: user.phone,
+    };
+    res.json({ success: true, message: 'Logged in successfully', user: authResponse });
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Authentication service unavailable' });
+  }
 });
 
-// POST /api/auth/forgot-password
-router.post('/forgot-password', (req, res) => {
-  const { email } = req.body;
-  if (!email) return res.status(400).json({ success: false, error: 'Email is required' });
+router.post('/forgot-password', async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ success: false, error: 'Email required' });
 
-  const user = users.find(u => u.email.toLowerCase() === email.toLowerCase());
-  if (!user) {
-    return res.status(404).json({ success: false, error: 'No account found with this email' });
+    const user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ success: false, error: 'Account not found' });
+
+    // Generate secure reset token
+    const resetToken = crypto.randomBytes(20).toString('hex');
+    
+    // Set token and expiry (10 minutes)
+    user.resetPasswordToken = resetToken;
+    user.resetPasswordExpire = Date.now() + 10 * 60 * 1000;
+    await user.save();
+
+    const resetUrl = `${process.env.CLIENT_URL}/reset-password/${resetToken}`;
+
+    const mailInfo = await sendResetPasswordEmail(user, resetUrl);
+    const previewUrl = mailInfo ? nodemailer.getTestMessageUrl(mailInfo) : null;
+
+    res.json({ 
+      success: true, 
+      message: 'Recovery link dispatched to your inbox.',
+      previewUrl // For developer testing
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Server error during password recovery' });
   }
-
-  // Simulate sending reset link
-  const resetToken = Math.random().toString(36).substr(2, 12).toUpperCase();
-  res.json({ success: true, message: `Password reset link sent to ${email}. (Demo token: ${resetToken})` });
 });
 
-// POST /api/auth/forgot-email
-router.post('/forgot-email', (req, res) => {
-  const { phone } = req.body;
-  if (!phone) return res.status(400).json({ success: false, error: 'Phone number is required' });
+/**
+ * POST /api/auth/reset-password/:token
+ * Verify token and update password.
+ */
+router.post('/reset-password/:token', async (req, res) => {
+  try {
+    const { password } = req.body;
+    if (!password) return res.status(400).json({ success: false, error: 'New password is required' });
 
-  const user = users.find(u => u.phone === phone);
-  if (!user) {
-    return res.status(404).json({ success: false, error: 'No account found with this phone number' });
+    const user = await User.findOne({
+      resetPasswordToken: req.params.token,
+      resetPasswordExpire: { $gt: Date.now() },
+    });
+
+    if (!user) {
+      return res.status(400).json({ success: false, error: 'Invalid or expired reset token' });
+    }
+
+    // Set new password (the model pre-save hook will hash it)
+    user.password = password;
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpire = undefined;
+    await user.save();
+
+    res.json({ success: true, message: 'Password reset successful! You can now log in.' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Server error during password reset' });
   }
-
-  // Mask the email for security
-  const parts = user.email.split('@');
-  const masked = parts[0].substring(0, 2) + '***@' + parts[1];
-  res.json({ success: true, message: `Your registered email is: ${masked}` });
 });
 
-// GET /api/auth/me — check auth
-router.get('/me', (req, res) => {
-  // In a real app this would use sessions/JWT — here we rely on client-side state
-  res.json({ success: false, error: 'Not implemented — use client-side auth state' });
+router.post('/forgot-email', async (req, res) => {
+  try {
+    const { phone } = req.body;
+    if (!phone) return res.status(400).json({ success: false, error: 'Phone required' });
+
+    const user = await User.findOne({ phone });
+    if (!user) return res.status(404).json({ success: false, error: 'No account linked to this number' });
+
+    // Send account details to their email
+    const mailInfo = await sendRecoveryEmail(user);
+    const previewUrl = mailInfo ? nodemailer.getTestMessageUrl(mailInfo) : null;
+
+    // Simulate a Live Push Notification / SMS to the phone number
+    console.log(`\n[LIVE PUSH] Sending recovery details to phone: ${user.phone}`);
+    console.log(`Message: SkyWay - Your registered email is ${user.email}. Check your inbox for full account details.\n`);
+
+    // Provide a hint in the response (masked email)
+    const [prefix, domain] = user.email.split('@');
+    const masked = `${prefix.substring(0, 2)}***@${domain}`;
+
+    res.json({ 
+      success: true, 
+      message: `Account details sent to your registered email and a notification has been sent to your phone number ${user.phone}.`,
+      hint: masked,
+      previewUrl // For developer testing
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Server error during account recovery' });
+  }
+});
+
+/**
+ * GET /api/auth/me
+ * Session validation endpoint.
+ */
+router.get('/me', async (req, res) => {
+  try {
+    const userId = req.headers['x-user-id'];
+    if (!userId) {
+      return res.status(401).json({ success: false, error: 'Session expired' });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User session invalid' });
+    }
+
+    const meResponse = {
+      _id: user._id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email,
+      phone: user.phone,
+    };
+    res.json({ success: true, user: meResponse });
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Server error' });
+  }
 });
 
 module.exports = router;
