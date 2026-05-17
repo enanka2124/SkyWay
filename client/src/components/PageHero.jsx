@@ -4,18 +4,30 @@ import { useEffect, useRef, useState } from 'react'
 function FloatLetters({ text, baseDelay = 0, gradient = false }) {
   return (
     <>
-      {text.split('').map((ch, i) => (
-        <span
-          key={i}
-          style={{
-            display: 'inline-block',
-            animation: `letterFloat 3.5s ease-in-out ${(baseDelay + i * 0.07).toFixed(2)}s infinite alternate`,
-            whiteSpace: ch === ' ' ? 'pre' : undefined,
-          }}
-        >
-          {ch === ' ' ? '\u00A0' : ch}
-        </span>
-      ))}
+      {text.split('').map((ch, i) => {
+        const floatAnim = `letterFloat 3.5s ease-in-out ${(baseDelay + i * 0.07).toFixed(2)}s infinite alternate`
+        const shimmerAnim = `shimmerText 3s linear infinite`
+        
+        return (
+          <span
+            key={i}
+            style={{
+              display: 'inline-block',
+              animation: gradient ? `${floatAnim}, ${shimmerAnim}` : floatAnim,
+              whiteSpace: ch === ' ' ? 'pre' : undefined,
+              ...(gradient ? {
+                background: 'linear-gradient(90deg, #f5a623 0%, #ffd166 35%, #ffbe4d 65%, #f5a623 100%)',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+                backgroundClip: 'text',
+                backgroundSize: '200% auto',
+              } : {})
+            }}
+          >
+            {ch === ' ' ? '\u00A0' : ch}
+          </span>
+        )
+      })}
     </>
   )
 }
@@ -157,10 +169,6 @@ export default function PageHero({
             {/* Line 2 — shimmer gold */}
             <span style={{
               display: inlineTitle ? 'inline-block' : 'block', textAlign: 'center',
-              background: 'linear-gradient(90deg, #f5a623 0%, #ffd166 35%, #ffbe4d 65%, #f5a623 100%)',
-              WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
-              backgroundClip: 'text', backgroundSize: '200% auto',
-              animation: 'shimmerText 3s linear infinite',
             }}>
               <FloatLetters text={line2} baseDelay={line1 ? 0.55 : 0} gradient />
             </span>
