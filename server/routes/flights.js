@@ -312,38 +312,64 @@ function adjustFlightPrices(flights, from, to, targetDate) {
   const longHaul = ['london','new york','paris','tokyo','lhr','jfk','cdg','nrt'];
   const regional = ['dubai','singapore','bangkok','bali','colombo','kathmandu','dxb','sin','bkk'];
 
-  // 1. Determine domestic base price limits based on date dot colors
-  let baseMin = 4000;
-  let baseMax = 15000;
+  // 1. Categorize route to set location-based price offsets
+  const longPairs = [
+    ['mumbai','kolkata'],['delhi','chennai'],['bangalore','delhi'],
+    ['hyderabad','kolkata'],['mumbai','guwahati'],['delhi','kochi'],
+    ['mumbai','srinagar'],['chennai','amritsar'],['kolkata','delhi'],
+    ['bom','ccu'],['del','maa'],['blr','del'],
+  ];
+  const medPairs = [
+    ['mumbai','delhi'],['delhi','bangalore'],['mumbai','chennai'],
+    ['hyderabad','delhi'],['pune','delhi'],['ahmedabad','delhi'],
+    ['mumbai','hyderabad'],['kolkata','bangalore'],['hyderabad','bangalore'],
+    ['bom','del'],['del','blr'],['bom','maa'],['hyd','del'],
+  ];
+
+  let isLongDomestic = longPairs.some(([a,b]) => (f.includes(a)&&t.includes(b))||(f.includes(b)&&t.includes(a)));
+  let isMedDomestic = medPairs.some(([a,b]) => (f.includes(a)&&t.includes(b))||(f.includes(b)&&t.includes(a)));
+
+  // Starting location-based offsets
+  let locationMinOffset = 0;
+  let locationMaxOffset = 0;
+
+  if (isLongDomestic) {
+    locationMinOffset = 3000;
+    locationMaxOffset = 4000;
+  } else if (isMedDomestic) {
+    locationMinOffset = 1500;
+    locationMaxOffset = 2000;
+  }
+
+  // 2. Determine base limits based on date dot color (+2k increase applied to all)
+  let baseMin = 6000; // Green dot starting price (increased from 4k)
+  let baseMax = 17000; // Green dot max price (increased from 15k)
 
   if (daysAhead <= 2) {
-    // Red dot: 6k to 22k (goes up to 20k+)
-    baseMin = 6000;
-    baseMax = 22000;
+    // Red dot: starts from 8k (increased from 6k)
+    baseMin = 8000;
+    baseMax = 24000;
   } else if (daysAhead <= 21) {
-    // Yellow dot: 5k to 16.5k (starts around 5k, goes to 15k+)
-    baseMin = 5000;
-    baseMax = 16500;
-  } else {
-    // Green dot: 4k to 15k
-    baseMin = 4000;
-    baseMax = 15000;
+    // Yellow dot: starts from 7k (increased from 5k)
+    baseMin = 7000;
+    baseMax = 18500;
   }
 
-  // 2. Adjust bounds for international flights
-  let rangeMultiplierMin = 1.0;
-  let rangeMultiplierMax = 1.0;
+  // 3. Adjust bounds for international flights vs domestic locations
+  let targetMinPrice;
+  let targetMaxPrice;
 
   if (longHaul.some(c => f.includes(c) || t.includes(c))) {
-    rangeMultiplierMin = 8.0; // 32k - 48k start
-    rangeMultiplierMax = 7.5; // 112k - 165k max
+    targetMinPrice = baseMin * 8.0; // 48k - 64k starting
+    targetMaxPrice = baseMax * 7.5; // 127k - 180k max
   } else if (regional.some(c => f.includes(c) || t.includes(c))) {
-    rangeMultiplierMin = 3.0; // 12k - 18k start
-    rangeMultiplierMax = 2.8; // 42k - 61k max
+    targetMinPrice = baseMin * 3.0; // 18k - 24k starting
+    targetMaxPrice = baseMax * 2.8; // 47k - 67k max
+  } else {
+    // Domestic with location-based offsets
+    targetMinPrice = baseMin + locationMinOffset;
+    targetMaxPrice = baseMax + locationMaxOffset;
   }
-
-  const targetMinPrice = baseMin * rangeMultiplierMin;
-  const targetMaxPrice = baseMax * rangeMultiplierMax;
 
   // 3. For each flight, generate a raw price score incorporating seat availability and peak hours
   flights.forEach(flight => {
