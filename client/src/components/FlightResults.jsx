@@ -11,20 +11,31 @@ export default function FlightResults({ flights, from, to, date, returnDate, tri
     return hours * 60 + mins
   }
 
+  const getStopsCount = (stopsStr) => {
+    if (!stopsStr) return 0
+    const s = stopsStr.toLowerCase()
+    if (s.includes('direct') || s.includes('0')) return 0
+    const match = s.match(/(\d+)/)
+    return match ? parseInt(match[1], 10) : 1
+  }
+
   const sortFlights = (list, method) => {
     const arr = [...list]
     if (method === 'cheapest') {
       return arr.sort((a, b) => a.price - b.price)
     } else if (method === 'fastest') {
-      // Fastest = shortest flight time, but shown at a premium price (real market: speed costs more)
       return arr.sort((a, b) => getDurationMins(a.duration) - getDurationMins(b.duration))
     } else {
-      // Best Value = best balance of price + time (medium range)
-      return arr.sort((a, b) => {
-        const scoreA = a.price + getDurationMins(a.duration) * 10
-        const scoreB = b.price + getDurationMins(b.duration) * 10
-        return scoreA - scoreB
-      })
+      const cheapest = arr.length ? Math.min(...arr.map(f => f.price)) : 0
+      const hasDiff = arr.some(f => f.price > cheapest)
+      const getScore = (f) => {
+        let score = f.price + getDurationMins(f.duration) * 15 + getStopsCount(f.stops) * 2500
+        if (hasDiff && f.price === cheapest) {
+          score += 10000
+        }
+        return score
+      }
+      return arr.sort((a, b) => getScore(a) - getScore(b))
     }
   }
 
@@ -41,18 +52,15 @@ export default function FlightResults({ flights, from, to, date, returnDate, tri
     setSortMethod(method)
     setSortedFlights(sortFlights(flights, method))
   }
-  // Derive filter prices from flights if not passed from API
-  const cheapestPrice = filterPrices?.cheapest ?? (flights?.length ? Math.min(...flights.map(f => f.price)) : null)
 
-  // Fastest = shortest duration flight — direct/quick = typically HIGHER price in real market
+  // Derive filter prices dynamically from flights list
+  const cheapestPrice = flights?.length ? Math.min(...flights.map(f => f.price)) : null
+
   const fastestFlights = flights?.length ? [...flights].sort((a, b) => getDurationMins(a.duration) - getDurationMins(b.duration)) : []
-  const fastestPrice = filterPrices?.fastest ?? (fastestFlights.length ? fastestFlights[0].price : null)
+  const fastestPrice = fastestFlights.length ? fastestFlights[0].price : null
 
-  // Best Value = optimal balance of price + duration (sits between cheapest & fastest)
-  const bestFlights = flights?.length ? [...flights].sort((a, b) => {
-    return (a.price + getDurationMins(a.duration) * 10) - (b.price + getDurationMins(b.duration) * 10)
-  }) : []
-  const bestPrice = filterPrices?.best ?? (bestFlights.length ? bestFlights[0].price : null)
+  const bestFlights = flights?.length ? sortFlights(flights, 'best') : []
+  const bestPrice = bestFlights.length ? bestFlights[0].price : null
 
   const fmt = (p) => p != null ? `₹${p.toLocaleString('en-IN')}` : ''
 

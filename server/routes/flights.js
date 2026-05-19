@@ -404,10 +404,30 @@ router.get('/', async (req, res) => {
       adjustFlightPrices(apiFlights, from, to, targetDate);
 
       // Compute filter summary prices
-      const getDurMins = d => { const [h,m] = d.match(/\d+/g); return +h*60 + +m; };
+      const getDurMins = d => {
+        if (!d) return 0;
+        const m = d.match(/\d+/g);
+        return m ? (+m[0] * 60 + +(m[1] || 0)) : 0;
+      };
+      const getStopsCount = stopsStr => {
+        if (!stopsStr) return 0;
+        const s = stopsStr.toLowerCase();
+        if (s.includes('direct') || s.includes('0')) return 0;
+        const match = s.match(/(\d+)/);
+        return match ? parseInt(match[1], 10) : 1;
+      };
+
       const byPrice = [...apiFlights].sort((a,b) => a.price - b.price);
       const bySpeed = [...apiFlights].sort((a,b) => getDurMins(a.duration) - getDurMins(b.duration));
-      const byBest  = [...apiFlights].sort((a,b) => (a.price + getDurMins(a.duration)*10) - (b.price + getDurMins(b.duration)*10));
+      
+      const cheapestPrice = byPrice[0]?.price;
+      const hasDifferentPrices = apiFlights.some(f => f.price > cheapestPrice);
+      
+      const byBest = [...apiFlights].sort((a,b) => {
+        const scoreA = a.price + getDurMins(a.duration) * 15 + getStopsCount(a.stops) * 2500 + (hasDifferentPrices && a.price === cheapestPrice ? 10000 : 0);
+        const scoreB = b.price + getDurMins(b.duration) * 15 + getStopsCount(b.stops) * 2500 + (hasDifferentPrices && b.price === cheapestPrice ? 10000 : 0);
+        return scoreA - scoreB;
+      });
 
       return res.json({
         success: true,
@@ -436,10 +456,30 @@ router.get('/', async (req, res) => {
     // Scale/adjust prices to match dot colors and the 4k minimum rule
     adjustFlightPrices(mockFlights, from, to, targetDate);
 
-    const getDurMins = d => { const m = d.match(/\d+/g); return +m[0]*60 + +m[1]; };
+    const getDurMins = d => {
+      if (!d) return 0;
+      const m = d.match(/\d+/g);
+      return m ? (+m[0] * 60 + +(m[1] || 0)) : 0;
+    };
+    const getStopsCount = stopsStr => {
+      if (!stopsStr) return 0;
+      const s = stopsStr.toLowerCase();
+      if (s.includes('direct') || s.includes('0')) return 0;
+      const match = s.match(/(\d+)/);
+      return match ? parseInt(match[1], 10) : 1;
+    };
+
     const byPrice = [...mockFlights].sort((a,b) => a.price - b.price);
     const bySpeed = [...mockFlights].sort((a,b) => getDurMins(a.duration) - getDurMins(b.duration));
-    const byBest  = [...mockFlights].sort((a,b) => (a.price + getDurMins(a.duration)*10) - (b.price + getDurMins(b.duration)*10));
+    
+    const cheapestPrice = byPrice[0]?.price;
+    const hasDifferentPrices = mockFlights.some(f => f.price > cheapestPrice);
+    
+    const byBest = [...mockFlights].sort((a,b) => {
+      const scoreA = a.price + getDurMins(a.duration) * 15 + getStopsCount(a.stops) * 2500 + (hasDifferentPrices && a.price === cheapestPrice ? 10000 : 0);
+      const scoreB = b.price + getDurMins(b.duration) * 15 + getStopsCount(b.stops) * 2500 + (hasDifferentPrices && b.price === cheapestPrice ? 10000 : 0);
+      return scoreA - scoreB;
+    });
 
     return res.json({
       success: true,
