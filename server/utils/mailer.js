@@ -20,47 +20,31 @@ const getTransporter = async () => {
     }
   }
 
-  if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-    const pass = process.env.EMAIL_PASS.replace(/\s+/g, '');
-    
-    transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        user: process.env.EMAIL_USER.trim(),
-        pass: pass,
-      },
-    });
-
-    try {
-      await transporter.verify();
-      console.log('\n✅ [MAILER] SMTP Server is ready for:', process.env.EMAIL_USER);
-    } catch (error) {
-      console.error('\n❌ [MAILER ERROR] SMTP Connection Failed:', error.message);
-      console.error('👉 Please check if your EMAIL_USER and EMAIL_PASS (App Password) are correct in .env\n');
-      transporter = null;
-    }
-  } else {
-    // Zero-Config: Generate a test account automatically
-    try {
-      const testAccount = await nodemailer.createTestAccount();
-      transporter = nodemailer.createTransport({
-        host: 'smtp.ethereal.email',
-        port: 587,
-        secure: false,
-        auth: {
-          user: testAccount.user,
-          pass: testAccount.pass,
-        },
-      });
-      console.log('\n' + '='.repeat(60));
-      console.log('🚀 [MAILER] ZERO-CONFIG MODE ACTIVE');
-      console.log(`📧 Test Account: ${testAccount.user}`);
-      console.log('🔗 View your "Real" emails at: https://ethereal.email');
-      console.log('='.repeat(60) + '\n');
-    } catch (err) {
-      console.error('[MAILER ERROR] Failed to create test account:', err.message);
-    }
+  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS || process.env.EMAIL_PASS === 'your-app-password') {
+    console.error('\n❌ [MAILER ERROR] Missing or invalid EMAIL_USER and EMAIL_PASS in .env file!');
+    console.error('👉 You MUST set a real Gmail address and App Password to send emails.\n');
+    return null;
   }
+
+  const pass = process.env.EMAIL_PASS.replace(/\s+/g, '');
+  
+  transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: process.env.EMAIL_USER.trim(),
+      pass: pass,
+    },
+  });
+
+  try {
+    await transporter.verify();
+    console.log('\n✅ [MAILER] SMTP Server is ready for:', process.env.EMAIL_USER);
+  } catch (error) {
+    console.error('\n❌ [MAILER ERROR] SMTP Connection Failed:', error.message);
+    console.error('👉 Please check if your EMAIL_USER and EMAIL_PASS (App Password) are correct in .env\n');
+    transporter = null;
+  }
+
   return transporter;
 };
 
@@ -162,7 +146,7 @@ const sendRegistrationEmail = async (user) => {
                       <!--[if (gte mso 9)|(IE)]><table align="center" border="0" cellspacing="0" cellpadding="0" width="560"><tr><td width="280" valign="top"><![endif]-->
                       
                       <!-- Card 1 (Flight) -->
-                      <table border="0" cellpadding="0" cellspacing="0" width="270" align="left" class="card-table" style="display: inline-table; margin: 10px; border-collapse: separate;">
+                      <table border="0" cellpadding="0" cellspacing="0" width="270" class="card-table" style="display: inline-block; margin: 10px; border-collapse: separate; vertical-align: top;">
                         <tr>
                           <td align="center" bgcolor="#0b1d3a" style="padding: 30px 20px; border-radius: 15px; color: #ffffff;">
                             <div style="font-size: 40px; margin-bottom: 15px;">✈️</div>
@@ -176,7 +160,7 @@ const sendRegistrationEmail = async (user) => {
                       <!--[if (gte mso 9)|(IE)]></td><td width="280" valign="top"><![endif]-->
 
                       <!-- Card 2 (Hotel) -->
-                      <table border="0" cellpadding="0" cellspacing="0" width="270" align="left" class="card-table" style="display: inline-table; margin: 10px; border-collapse: separate;">
+                      <table border="0" cellpadding="0" cellspacing="0" width="270" class="card-table" style="display: inline-block; margin: 10px; border-collapse: separate; vertical-align: top;">
                         <tr>
                           <td align="center" bgcolor="#ffcc00" style="padding: 30px 20px; border-radius: 15px; color: #0b1d3a;">
                             <div style="font-size: 40px; margin-bottom: 15px;">🏨</div>
