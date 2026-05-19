@@ -69,6 +69,15 @@ export default function FlightCard({ flight }) {
             <span className="text-text-muted">🧳 {flight.baggage}</span>
             <span className="text-text-muted">🍽 {flight.meal}</span>
             <span className="text-text-muted" style={{ opacity: 0.7 }}>{flight.airline} · {flight.code}</span>
+            {flight.seatsLeft && flight.seatsLeft <= 10 && (
+              <span className="px-2.5 py-0.5 rounded-full font-semibold text-xs" style={{ 
+                background: flight.seatsLeft <= 5 ? 'rgba(239, 68, 68, 0.12)' : 'rgba(245, 166, 35, 0.12)',
+                color: flight.seatsLeft <= 5 ? '#ff5252' : '#ffb300',
+                border: `1px solid ${flight.seatsLeft <= 5 ? 'rgba(239, 68, 68, 0.25)' : 'rgba(245, 166, 35, 0.25)'}`
+              }}>
+                {flight.seatsLeft <= 5 ? `🔥 Only ${flight.seatsLeft} seats left!` : `⚠️ ${flight.seatsLeft} seats left`}
+              </span>
+            )}
           </div>
         </div>
 

@@ -312,36 +312,96 @@ function adjustFlightPrices(flights, from, to, targetDate) {
   const longHaul = ['london','new york','paris','tokyo','lhr','jfk','cdg','nrt'];
   const regional = ['dubai','singapore','bangkok','bali','colombo','kathmandu','dxb','sin','bkk'];
 
-  let targetMinPrice = 2000; // Default for domestic green dot
-  if (longHaul.some(c => f.includes(c) || t.includes(c))) {
-    // Long haul international
-    if (daysAhead <= 0) targetMinPrice = 45000;
-    else if (daysAhead <= 2) targetMinPrice = 42000;
-    else if (daysAhead <= 21) targetMinPrice = 36000;
-    else targetMinPrice = 30000;
-  } else if (regional.some(c => f.includes(c) || t.includes(c))) {
-    // Regional international
-    if (daysAhead <= 0) targetMinPrice = 14000;
-    else if (daysAhead <= 2) targetMinPrice = 12500;
-    else if (daysAhead <= 21) targetMinPrice = 10000;
-    else targetMinPrice = 8000;
+  // 1. Determine domestic base price limits based on date dot colors
+  let baseMin = 4000;
+  let baseMax = 15000;
+
+  if (daysAhead <= 2) {
+    // Red dot: 6k to 22k (goes up to 20k+)
+    baseMin = 6000;
+    baseMax = 22000;
+  } else if (daysAhead <= 21) {
+    // Yellow dot: 5k to 16.5k (starts around 5k, goes to 15k+)
+    baseMin = 5000;
+    baseMax = 16500;
   } else {
-    // Domestic
-    if (daysAhead <= 0) targetMinPrice = 4000; // Starts from 4k for present day!
-    else if (daysAhead <= 2) targetMinPrice = 3500;
-    else if (daysAhead <= 21) targetMinPrice = 2800;
-    else targetMinPrice = 2000;
+    // Green dot: 4k to 15k
+    baseMin = 4000;
+    baseMax = 15000;
   }
 
-  // Find current minimum price
-  const currentMinPrice = Math.min(...flights.map(f => f.price));
-  if (currentMinPrice <= 0) return flights;
+  // 2. Adjust bounds for international flights
+  let rangeMultiplierMin = 1.0;
+  let rangeMultiplierMax = 1.0;
 
-  const scaleFactor = targetMinPrice / currentMinPrice;
+  if (longHaul.some(c => f.includes(c) || t.includes(c))) {
+    rangeMultiplierMin = 8.0; // 32k - 48k start
+    rangeMultiplierMax = 7.5; // 112k - 165k max
+  } else if (regional.some(c => f.includes(c) || t.includes(c))) {
+    rangeMultiplierMin = 3.0; // 12k - 18k start
+    rangeMultiplierMax = 2.8; // 42k - 61k max
+  }
 
-  // Apply scaling
+  const targetMinPrice = baseMin * rangeMultiplierMin;
+  const targetMaxPrice = baseMax * rangeMultiplierMax;
+
+  // 3. For each flight, generate a raw price score incorporating seat availability and peak hours
   flights.forEach(flight => {
-    flight.price = Math.floor(flight.price * scaleFactor);
+    // Set seatsLeft if not present (between 2 and 45)
+    if (!flight.seatsLeft) {
+      flight.seatsLeft = Math.floor(Math.random() * 44) + 2; 
+    }
+
+    // Calculate seat availability surge (fewer seats = higher price)
+    let seatMultiplier = 1.0;
+    if (flight.seatsLeft <= 3) {
+      seatMultiplier = 1.30 + Math.random() * 0.15; // 30% - 45% surge
+    } else if (flight.seatsLeft <= 7) {
+      seatMultiplier = 1.15 + Math.random() * 0.10; // 15% - 25% surge
+    } else if (flight.seatsLeft <= 12) {
+      seatMultiplier = 1.05 + Math.random() * 0.05; // 5% - 10% surge
+    }
+
+    // Calculate peak hour surge
+    let timeMultiplier = 1.0;
+    if (flight.dep) {
+      const hour = parseInt(flight.dep.split(':')[0]);
+      if (hour >= 7 && hour <= 9) {
+        timeMultiplier = 1.15 + Math.random() * 0.08; // Morning rush hour
+      } else if (hour >= 17 && hour <= 20) {
+        timeMultiplier = 1.12 + Math.random() * 0.08; // Evening rush hour
+      } else if (hour >= 0 && hour <= 4) {
+        timeMultiplier = 0.85 + Math.random() * 0.05; // Late night discount
+      }
+    }
+
+    // Combine factors
+    flight.rawScore = flight.price * seatMultiplier * timeMultiplier;
+  });
+
+  // 4. Map the rawScore of flights to the target [targetMinPrice, targetMaxPrice] range
+  const scores = flights.map(f => f.rawScore);
+  const minRaw = Math.min(...scores);
+  const maxRaw = Math.max(...scores);
+
+  flights.forEach(flight => {
+    let finalPrice = targetMinPrice;
+    if (maxRaw > minRaw) {
+      const normalized = (flight.rawScore - minRaw) / (maxRaw - minRaw);
+      finalPrice = targetMinPrice + normalized * (targetMaxPrice - targetMinPrice);
+    }
+
+    // Apply a small random perturbation (+- 2%) for realism
+    const variance = (Math.random() * 0.04) - 0.02; // -2% to +2%
+    let priceValue = finalPrice * (1 + variance);
+
+    // Round to nearest 50 and make it end in 99 for Skyscanner style
+    priceValue = Math.round(priceValue / 50) * 50 - 1;
+
+    // Safety checks
+    const safetyMin = targetMinPrice * 0.95;
+    const safetyMax = targetMaxPrice * 1.05;
+    flight.price = Math.max(Math.floor(safetyMin), Math.min(Math.floor(safetyMax), Math.floor(priceValue)));
   });
 
   return flights;
@@ -369,7 +429,7 @@ router.get('/', async (req, res) => {
         date: targetDate,
         adults: '1',
         currency: 'INR',
-        limit: '20'
+        limit: '40'
       },
       headers: {
         'X-RapidAPI-Key': process.env.SKYSCANNER_RAPIDAPI_KEY,
@@ -378,7 +438,7 @@ router.get('/', async (req, res) => {
     });
 
     if (response.data && response.data.data && response.data.data.itineraries && response.data.data.itineraries.length > 0) {
-      const apiFlights = response.data.data.itineraries.slice(0, 20).map((itin, index) => {
+      const apiFlights = response.data.data.itineraries.slice(0, 30).map((itin, index) => {
         const leg = itin.legs[0];
         const carrier = leg.carriers.marketing[0];
         const durMins = leg.durationInMinutes;
@@ -451,7 +511,7 @@ router.get('/', async (req, res) => {
   } catch (error) {
     console.log('Skyscanner API Error:', error.message, '— using market-realistic fallback');
 
-    const mockFlights = buildMockFlights(from, to, 12, targetDate);
+    const mockFlights = buildMockFlights(from, to, 30, targetDate);
 
     // Scale/adjust prices to match dot colors and the 4k minimum rule
     adjustFlightPrices(mockFlights, from, to, targetDate);
@@ -569,7 +629,7 @@ router.post('/multi', async (req, res) => {
       const from = leg.from || 'Mumbai';
       const to = leg.to || 'Delhi';
       const date = leg.date || new Date().toISOString().split('T')[0];
-      const flights = buildMockFlights(from, to, 8, date);
+      const flights = buildMockFlights(from, to, 20, date);
       adjustFlightPrices(flights, from, to, date);
       flights.sort((a,b) => a.price - b.price);
       const formattedFlights = flights.map((f,idx) => ({...f, id: idx+1}));
