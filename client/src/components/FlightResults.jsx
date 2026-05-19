@@ -79,7 +79,7 @@ export default function FlightResults({ flights, from, to, date, returnDate, tri
       <div className="container-main" style={{ paddingTop: '2rem', paddingBottom: '3rem' }}>
         {loading && <div className="loading-bar"></div>}
 
-        <div className="results-header flex items-center justify-between mb-6 flex-wrap gap-3">
+        <div className="results-header flex items-center justify-between flex-wrap gap-3" style={{ marginBottom: '2.25rem' }}>
           <div>
             <div className="font-syne text-xl font-bold">
               {loading ? 'Searching live prices…' : (
