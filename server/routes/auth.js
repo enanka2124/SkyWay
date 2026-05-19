@@ -120,15 +120,33 @@ router.post('/register', async (req, res) => {
     }
 
 
-    // 4. Duplicate Check
+    // 4. Duplicate Check & Re-registration Logic
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
     const emailConflict = await User.findOne({ email });
     if (emailConflict) {
-      return res.status(409).json({ success: false, error: 'Email already in use' });
+      if (emailConflict.deletedAt) {
+        if (emailConflict.deletedAt > sevenDaysAgo) {
+           return res.status(409).json({ success: false, error: 'Account was deleted recently. Please wait 7 days from deletion to re-register.' });
+        } else {
+           await User.findByIdAndDelete(emailConflict._id); // Hard delete old record to free email
+        }
+      } else {
+        return res.status(409).json({ success: false, error: 'Email already in use' });
+      }
     }
 
     const phoneConflict = await User.findOne({ phone });
     if (phoneConflict) {
-      return res.status(409).json({ success: false, error: 'Phone number already registered' });
+      if (phoneConflict.deletedAt) {
+        if (phoneConflict.deletedAt > sevenDaysAgo) {
+           return res.status(409).json({ success: false, error: 'Account was deleted recently. Please wait 7 days from deletion to re-register.' });
+        } else {
+           await User.findByIdAndDelete(phoneConflict._id); // Hard delete old record to free phone
+        }
+      } else {
+        return res.status(409).json({ success: false, error: 'Phone number already registered' });
+      }
     }
 
     // 5. Create User
@@ -151,8 +169,6 @@ router.post('/register', async (req, res) => {
     console.log(`\n[LIVE PUSH] New User Registered: ${newUser.firstName} ${newUser.lastName}`);
     console.log(`[LIVE PUSH] Notification sent to ${newUser.phone}: "Welcome to SkyWay! Your account is active."\n`);
 
-    const previewUrl = mailInfo ? nodemailer.getTestMessageUrl(mailInfo) : null;
-
     const userResponse = {
       _id: newUser._id,
       firstName: newUser.firstName,
@@ -165,8 +181,7 @@ router.post('/register', async (req, res) => {
       success: true, 
       message: 'Congratulations! Welcome aboard.', 
       user: userResponse,
-      emailSent: !!mailInfo,
-      previewUrl // For developer testing
+      emailSent: !!mailInfo
     });
 
   } catch (err) {
@@ -185,7 +200,7 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Credentials required' });
     }
 
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email, deletedAt: null });
     if (!user) {
       return res.status(401).json({ success: false, error: 'Invalid email or password' });
     }
@@ -213,7 +228,7 @@ router.post('/forgot-password', async (req, res) => {
     const { email } = req.body;
     if (!email) return res.status(400).json({ success: false, error: 'Email required' });
 
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email, deletedAt: null });
     if (!user) return res.status(404).json({ success: false, error: 'Account not found' });
 
     // Generate secure reset token
@@ -227,12 +242,10 @@ router.post('/forgot-password', async (req, res) => {
     const resetUrl = `${process.env.CLIENT_URL}/reset-password/${resetToken}`;
 
     const mailInfo = await sendResetPasswordEmail(user, resetUrl);
-    const previewUrl = mailInfo ? nodemailer.getTestMessageUrl(mailInfo) : null;
 
     res.json({ 
       success: true, 
-      message: 'Recovery link dispatched to your inbox.',
-      previewUrl // For developer testing
+      message: 'Recovery link dispatched to your inbox.'
     });
   } catch (error) {
     res.status(500).json({ success: false, error: 'Server error during password recovery' });
@@ -274,12 +287,11 @@ router.post('/forgot-email', async (req, res) => {
     const { phone } = req.body;
     if (!phone) return res.status(400).json({ success: false, error: 'Phone required' });
 
-    const user = await User.findOne({ phone });
+    const user = await User.findOne({ phone, deletedAt: null });
     if (!user) return res.status(404).json({ success: false, error: 'No account linked to this number' });
 
     // Send account details to their email
     const mailInfo = await sendRecoveryEmail(user);
-    const previewUrl = mailInfo ? nodemailer.getTestMessageUrl(mailInfo) : null;
 
     // Simulate a Live Push Notification / SMS to the phone number
     console.log(`\n[LIVE PUSH] Sending recovery details to phone: ${user.phone}`);
@@ -292,8 +304,7 @@ router.post('/forgot-email', async (req, res) => {
     res.json({ 
       success: true, 
       message: `Account details sent to your registered email and a notification has been sent to your phone number ${user.phone}.`,
-      hint: masked,
-      previewUrl // For developer testing
+      hint: masked
     });
   } catch (error) {
     res.status(500).json({ success: false, error: 'Server error during account recovery' });
@@ -311,7 +322,7 @@ router.get('/me', async (req, res) => {
       return res.status(401).json({ success: false, error: 'Session expired' });
     }
 
-    const user = await User.findById(userId);
+    const user = await User.findOne({ _id: userId, deletedAt: null });
     if (!user) {
       return res.status(404).json({ success: false, error: 'User session invalid' });
     }
@@ -326,6 +337,30 @@ router.get('/me', async (req, res) => {
     res.json({ success: true, user: meResponse });
   } catch (error) {
     res.status(500).json({ success: false, error: 'Server error' });
+  }
+});
+
+/**
+ * DELETE /api/auth/delete-account
+ */
+router.delete('/delete-account', async (req, res) => {
+  try {
+    const userId = req.headers['x-user-id'];
+    if (!userId) {
+      return res.status(401).json({ success: false, error: 'Session expired' });
+    }
+
+    const user = await User.findOne({ _id: userId, deletedAt: null });
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found or already deleted' });
+    }
+
+    user.deletedAt = new Date();
+    await user.save();
+
+    res.json({ success: true, message: 'Account deleted successfully. You can re-register after 7 days.' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Failed to delete account' });
   }
 });
 
