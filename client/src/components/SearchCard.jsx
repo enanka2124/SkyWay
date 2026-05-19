@@ -92,12 +92,11 @@ export default function SearchCard({ onSearch, initialFrom, initialTo, initialDa
   const returnRef = useRef(null)
 
   /**
-   * Date-proximity demand color — matches backend surge pricing EXACTLY.
-   * Parses date as LOCAL time (not UTC) to avoid IST timezone shift bug.
+   * REAL MARKET demand color — perfectly synced with backend surge multiplier.
    *
-   *  🔴 Red    0–3 days   → last-minute surge +55–130%  (most expensive)
-   *  🟡 Yellow 4–21 days  → moderate/normal pricing     (medium price)
-   *  🟢 Green  22+ days   → advance booking -6 to -16%  (cheapest)
+   *  🔴 Red    0–2 days   → last-minute surge (+150–250%) — MOST EXPENSIVE
+   *  🟡 Yellow 3–21 days  → rising demand (+15–130%)      — MEDIUM PRICE
+   *  🟢 Green  22+ days   → advance booking (0 to -12%)    — CHEAPEST
    */
   const getDemandColorForDate = (dateStr) => {
     if (!dateStr) return '#22c55e'
@@ -106,9 +105,9 @@ export default function SearchCard({ onSearch, initialFrom, initialTo, initialDa
     const [y, mo, d] = dateStr.split('-').map(Number)
     const travel = new Date(y, mo - 1, d)  // local midnight
     const daysAhead = Math.floor((travel - today) / (1000 * 60 * 60 * 24))
-    if (daysAhead <= 3)  return '#ef4444' // 🔴 0–3 days: last-minute, very expensive
-    if (daysAhead <= 21) return '#eab308' // 🟡 4–21 days: near, medium price
-    return '#22c55e'                       // 🟢 22+ days: advance, cheapest
+    if (daysAhead <= 2)  return '#ef4444' // 🔴 0–2 days: last-minute surge (2.5–3.5x price)
+    if (daysAhead <= 21) return '#eab308' // 🟡 3–21 days: moderate to high price
+    return '#22c55e'                       // 🟢 22+ days: advance booking, cheapest
   }
 
   // Handle clicks outside of custom calendars to close them
@@ -228,7 +227,13 @@ export default function SearchCard({ onSearch, initialFrom, initialTo, initialDa
                       borderRadius: '50%',
                       margin: '2px auto 0'
                     }}
-                    title={demandColor === '#ef4444' ? 'High Demand' : demandColor === '#eab308' ? 'Medium Demand' : 'Low Demand'}
+                    title={
+                      demandColor === '#ef4444'
+                        ? '🔴 High price — last-minute booking'
+                        : demandColor === '#eab308'
+                        ? '🟡 Medium price — standard booking'
+                        : '🟢 Best price — advance booking'
+                    }
                   />
                 )}
               </button>

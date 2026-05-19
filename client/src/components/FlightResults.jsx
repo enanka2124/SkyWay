@@ -41,12 +41,14 @@ export default function FlightResults({ flights, from, to, date, returnDate, tri
     setSortMethod(method)
     setSortedFlights(sortFlights(flights, method))
   }
-
   // Derive filter prices from flights if not passed from API
   const cheapestPrice = filterPrices?.cheapest ?? (flights?.length ? Math.min(...flights.map(f => f.price)) : null)
+
+  // Fastest = shortest duration flight — direct/quick = typically HIGHER price in real market
   const fastestFlights = flights?.length ? [...flights].sort((a, b) => getDurationMins(a.duration) - getDurationMins(b.duration)) : []
-  // Fastest = shortest duration → typically higher price in real market
   const fastestPrice = filterPrices?.fastest ?? (fastestFlights.length ? fastestFlights[0].price : null)
+
+  // Best Value = optimal balance of price + duration (sits between cheapest & fastest)
   const bestFlights = flights?.length ? [...flights].sort((a, b) => {
     return (a.price + getDurationMins(a.duration) * 10) - (b.price + getDurationMins(b.duration) * 10)
   }) : []
@@ -59,9 +61,9 @@ export default function FlightResults({ flights, from, to, date, returnDate, tri
     : ''
 
   const filterTabs = [
-    { id: 'cheapest', label: 'Cheapest',   sub: fmt(cheapestPrice), color: '#22d07a' },
-    { id: 'fastest',  label: 'Fastest',    sub: fmt(fastestPrice),  color: '#f5a623' },
-    { id: 'best',     label: 'Best Value', sub: fmt(bestPrice),     color: '#60a5fa' },
+    { id: 'cheapest', label: 'Cheapest',   sub: fmt(cheapestPrice), hint: 'Lowest fare',    color: '#22d07a' },
+    { id: 'fastest',  label: 'Fastest',    sub: fmt(fastestPrice),  hint: 'Direct · Quick', color: '#f5a623' },
+    { id: 'best',     label: 'Best Value', sub: fmt(bestPrice),     hint: 'Price + Speed',  color: '#60a5fa' },
   ]
 
   return (
@@ -121,6 +123,16 @@ export default function FlightResults({ flights, from, to, date, returnDate, tri
                     fontFamily: 'var(--font-syne, inherit)',
                   }}>
                     {tab.sub}
+                  </div>
+                )}
+                {tab.hint && (
+                  <div style={{
+                    fontSize: '0.68rem',
+                    color: sortMethod === tab.id ? `${tab.color}cc` : 'rgba(255,255,255,0.3)',
+                    marginTop: '2px',
+                    letterSpacing: '0.01em',
+                  }}>
+                    {tab.hint}
                   </div>
                 )}
               </button>

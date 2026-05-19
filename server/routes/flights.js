@@ -96,80 +96,118 @@ async function getAirportDetails(cityName) {
   return { skyId: 'BOM', entityId: '95673320' };
 }
 
-// Skyscanner-style tiered base price by route distance
+/**
+ * Real Indian aviation market base prices (lowest available seat — IndiGo/SpiceJet style)
+ * These represent the cheapest seats with ADVANCE BOOKING (green dot baseline).
+ * Surge multipliers are applied on top for yellow/red dates.
+ *
+ * Real market references (approx):
+ *  - BLR→MAA (1h): ₹1,800–₹4,500
+ *  - MUM→DEL (2h): ₹3,500–₹9,000
+ *  - DEL→BLR (2.5h): ₹4,200–₹11,000
+ *  - MUM→KOL (2.5h): ₹5,500–₹13,000
+ *  - MUM→DXB (3h): ₹12,000–₹28,000
+ *  - MUM→SIN (5.5h): ₹18,000–₹45,000
+ *  - DEL→LHR (9h): ₹40,000–₹90,000
+ */
 function getBasePrice(from, to) {
-  const f = from.toLowerCase().replace(/\s*\(.*?\)/, '');
-  const t = to.toLowerCase().replace(/\s*\(.*?\)/, '');
+  const f = from.toLowerCase().replace(/\s*\(.*?\)/, '').trim();
+  const t = to.toLowerCase().replace(/\s*\(.*?\)/, '').trim();
 
-  // Long-haul international (EU/US) — ₹55k–₹1.5L
+  // Long-haul international (EU/US) — ₹38k–₹75k base (green dot; surge pushes to ₹90k+)
   const longHaul = ['london','new york','paris','tokyo','lhr','jfk','cdg','nrt'];
   if (longHaul.some(c => f.includes(c) || t.includes(c)))
-    return Math.floor(Math.random() * 95000) + 55000;
+    return Math.floor(Math.random() * 37000) + 38000;  // ₹38k–₹75k
 
-  // Regional international (Dubai/SEA) — ₹18k–₹45k
+  // Regional international (Gulf/SEA) — ₹11k–₹22k base
   const regional = ['dubai','singapore','bangkok','bali','colombo','kathmandu','dxb','sin','bkk'];
   if (regional.some(c => f.includes(c) || t.includes(c)))
-    return Math.floor(Math.random() * 27000) + 18000;
+    return Math.floor(Math.random() * 11000) + 11000;  // ₹11k–₹22k
 
-  // Long domestic cross-country (~3h+) — ₹14k–₹22k
+  // Long domestic cross-country (2.5h+): BOM-CCU, DEL-MAA, BLR-DEL, etc. — ₹5,500–₹10,000
   const longPairs = [
     ['mumbai','kolkata'],['delhi','chennai'],['bangalore','delhi'],
     ['hyderabad','kolkata'],['mumbai','guwahati'],['delhi','kochi'],
     ['mumbai','srinagar'],['chennai','amritsar'],['kolkata','delhi'],
+    ['bom','ccu'],['del','maa'],['blr','del'],
   ];
   if (longPairs.some(([a,b]) => (f.includes(a)&&t.includes(b))||(f.includes(b)&&t.includes(a))))
-    return Math.floor(Math.random() * 8000) + 14000;  // ₹14k–₹22k
+    return Math.floor(Math.random() * 4500) + 5500;   // ₹5,500–₹10,000
 
-  // Medium domestic metro pairs (~1.5–3h) — ₹10k–₹18k
+  // Medium domestic metro routes (1.5–2.5h): BOM-DEL, DEL-BLR, BOM-MAA, HYD-DEL, etc. — ₹3,500–₹8,000
   const medPairs = [
     ['mumbai','delhi'],['delhi','bangalore'],['mumbai','chennai'],
     ['hyderabad','delhi'],['pune','delhi'],['ahmedabad','delhi'],
     ['mumbai','hyderabad'],['kolkata','bangalore'],['hyderabad','bangalore'],
+    ['bom','del'],['del','blr'],['bom','maa'],['hyd','del'],
   ];
   if (medPairs.some(([a,b]) => (f.includes(a)&&t.includes(b))||(f.includes(b)&&t.includes(a))))
-    return Math.floor(Math.random() * 8000) + 10000;  // ₹10k–₹18k
+    return Math.floor(Math.random() * 4500) + 3500;   // ₹3,500–₹8,000
 
-  // Short domestic nearby (<1.5h) — ₹6k–₹13k
-  return Math.floor(Math.random() * 7000) + 6000;     // ₹6k–₹13k
+  // Short domestic nearby routes (<1.5h): BLR-MAA, BOM-GOI, DEL-JAI, etc. — ₹1,800–₹5,000
+  return Math.floor(Math.random() * 3200) + 1800;     // ₹1,800–₹5,000
 }
 
 /**
- * Date-based surge multiplier — aligned with calendar dot colors:
- *  🔴 Red    0–3 days  : +80–120% surge  (last-minute, very high)
- *  🟡 Yellow 4–10 days : +20–50% surge   (near-term, high)
- *  🟡 Yellow 11–21 days: +5–20% surge    (normal market)
- *  🟢 Green  22–45 days: -5–0%           (advance, lower)
- *  🟢 Green  45+ days  : -15–-5%         (early bird, cheapest)
+ * REAL MARKET Date-based surge multiplier — mirrors actual airline dynamic pricing.
+ *
+ * How real airlines price tickets:
+ *  - Book 60+ days early   → cheapest (early-bird fares, green dot)
+ *  - Book 22–59 days ahead → normal/standard fares (green dot)
+ *  - Book 8–21 days ahead  → moderate increase (yellow dot)
+ *  - Book 3–7 days ahead   → significant increase (yellow/red dot)
+ *  - Book 0–2 days ahead   → last-minute surge, but NOT always 2x
+ *                            (unsold seats sometimes discounted, sometimes surged)
+ *
+ * Real multiplier examples (IndiGo BOM→DEL ₹3,500 base):
+ *  🟢 60+ days:  ₹3,500  (1.00x  — cheapest, early bird)
+ *  🟢 22–59 days: ₹3,800–₹4,500 (1.05–1.25x — standard advance)
+ *  🟡 8–21 days:  ₹5,000–₹7,000 (1.30–1.80x — normal demand)
+ *  🟡 3–7 days:   ₹7,000–₹10,000 (1.90–2.50x — high demand, near-term)
+ *  🔴 0–2 days:   ₹9,000–₹14,000 (2.50–3.50x — last-minute surge)
+ *
+ *  🔴 Red   = most expensive (0–2 days)
+ *  🟡 Yellow = moderately expensive (3–21 days)
+ *  🟢 Green  = cheapest (22+ days)
  */
 function getDateSurgeMultiplier(targetDate) {
-  if (!targetDate) return 1.0;
+  if (!targetDate) return 1.05;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  // Parse as local date (avoid UTC shift bug)
+  // Parse as local date (avoid UTC/IST timezone shift bug)
   const [y, m, d] = targetDate.split('-').map(Number);
   const travel = new Date(y, m - 1, d);
   const daysAhead = Math.floor((travel - today) / (1000 * 60 * 60 * 24));
 
-  if (daysAhead <= 0)  return 2.00 + Math.random() * 0.30; // today: +100–130%
-  if (daysAhead <= 1)  return 1.80 + Math.random() * 0.25; // tomorrow: +80–105%
-  if (daysAhead <= 3)  return 1.55 + Math.random() * 0.20; // 2–3 days: +55–75%
-  if (daysAhead <= 7)  return 1.25 + Math.random() * 0.20; // 4–7 days: +25–45%
-  if (daysAhead <= 14) return 1.10 + Math.random() * 0.12; // 1–2 weeks: +10–22%
-  if (daysAhead <= 21) return 1.03 + Math.random() * 0.08; // 3 weeks: +3–11%
-  if (daysAhead <= 45) return 0.94 + Math.random() * 0.06; // 1–1.5 months: -6–0%
-  return 0.84 + Math.random() * 0.06;                       // 45+ days: -16–-10%
+  // 🔴 RED — Last-minute: +150–250% surge (real airlines charge 2.5–3.5x for last-minute)
+  if (daysAhead <= 0)  return 3.00 + Math.random() * 0.50; // today: +200–250% (seat scarcity)
+  if (daysAhead <= 2)  return 2.50 + Math.random() * 0.50; // 1–2 days: +150–200%
+
+  // 🟡 YELLOW — Near-term: +30–150% (rising demand as travel approaches)
+  if (daysAhead <= 4)  return 1.90 + Math.random() * 0.40; // 3–4 days: +90–130%
+  if (daysAhead <= 7)  return 1.55 + Math.random() * 0.35; // 5–7 days: +55–90%
+  if (daysAhead <= 14) return 1.30 + Math.random() * 0.20; // 1–2 weeks: +30–50%
+  if (daysAhead <= 21) return 1.15 + Math.random() * 0.15; // 3 weeks: +15–30%
+
+  // 🟢 GREEN — Advance booking: cheapest fares (0% to -15%)
+  if (daysAhead <= 45) return 1.00 + Math.random() * 0.08; // 3–6 weeks: 0–8% above base
+  if (daysAhead <= 60) return 0.95 + Math.random() * 0.07; // 6–8 weeks: -5 to +2%
+  return 0.88 + Math.random() * 0.07;                       // 60+ days: -12 to -5% (early bird)
 }
 
-/** Dot color — matches surge tier exactly */
+/**
+ * Dot color — perfectly aligned with surge tiers above.
+ * Used by both the calendar UI and results display.
+ */
 function getDateDotColor(targetDate) {
   if (!targetDate) return 'green';
   const today = new Date(); today.setHours(0,0,0,0);
   const [y, m, d] = targetDate.split('-').map(Number);
   const travel = new Date(y, m - 1, d);
   const daysAhead = Math.floor((travel - today) / (1000*60*60*24));
-  if (daysAhead <= 3)  return 'red';    // 🔴 last-minute: most expensive
-  if (daysAhead <= 21) return 'yellow'; // 🟡 near: medium price
-  return 'green';                        // 🟢 advance: cheapest
+  if (daysAhead <= 2)  return 'red';    // 🔴 0–2 days: last-minute surge (most expensive)
+  if (daysAhead <= 21) return 'yellow'; // 🟡 3–21 days: moderate/high price
+  return 'green';                        // 🟢 22+ days: advance booking (cheapest)
 }
 
 function buildMockFlights(from, to, count = 12, targetDate = null) {
@@ -190,22 +228,55 @@ function buildMockFlights(from, to, count = 12, targetDate = null) {
 
   for (let i = 0; i < count; i++) {
     const airline = airlines[i % airlines.length];
-    const priceVariance = (Math.random() * 0.35) - 0.1;
-    const price = Math.floor(basePrice * airline.multiplier * surgeMultiplier * (1 + priceVariance));
-
     const depHour = Math.floor(Math.random() * 18) + 4;
     const depMin = Math.floor(Math.random() * 12) * 5;
-    // Faster flights cost more (real market behavior)
-    const durationHours = Math.floor(Math.random() * 3) + 1;
-    const durationMins = Math.floor(Math.random() * 12) * 5;
+
+    /**
+     * REAL MARKET: stop type & duration are decided FIRST, then price is derived.
+     * Real airlines: direct fast flights cost MORE; slow/stop flights cost LESS.
+     *
+     * Stop distribution (realistic):
+     *   ~65% Direct | ~28% 1 Stop | ~7% 2 Stops
+     */
+    const stopRoll = Math.random();
+    const stopsLabel = stopRoll < 0.65 ? 'Direct' : stopRoll < 0.93 ? '1 Stop' : '2 Stops';
+
+    // Duration is correlated with stops (stops add 1-3 extra hours)
+    const baseDurHours = Math.floor(Math.random() * 2) + 1;  // 1-2h for direct
+    const extraHours   = stopsLabel === '2 Stops' ? 3 : stopsLabel === '1 Stop' ? 2 : 0;
+    const durationHours = baseDurHours + extraHours;
+    const durationMins  = Math.floor(Math.random() * 12) * 5;
+    const totalMins     = durationHours * 60 + durationMins;
+
+    /**
+     * Speed premium — mirrors real airline pricing:
+     *   Direct <90 min  → +25-35%  (very fast, premium seat)
+     *   Direct 90-150m  → +12-20%  (standard direct)
+     *   Direct 150m+    → +5-12%   (long direct)
+     *   1 Stop          → -10-18%  (budget, slower)
+     *   2 Stops         → -20-30%  (cheapest, very slow)
+     */
+    let speedMultiplier;
+    if (stopsLabel === 'Direct') {
+      if (totalMins <= 90)       speedMultiplier = 1.28 + Math.random() * 0.10; // 1.28–1.38
+      else if (totalMins <= 150) speedMultiplier = 1.12 + Math.random() * 0.08; // 1.12–1.20
+      else                       speedMultiplier = 1.05 + Math.random() * 0.07; // 1.05–1.12
+    } else if (stopsLabel === '1 Stop') {
+      speedMultiplier = 0.82 + Math.random() * 0.08; // 0.82–0.90
+    } else {
+      speedMultiplier = 0.70 + Math.random() * 0.08; // 0.70–0.78
+    }
+
+    // Small random variance per seat
+    const seatVariance = 1 + (Math.random() * 0.12) - 0.04; // -4% to +12%
+    const price = Math.floor(basePrice * airline.multiplier * surgeMultiplier * speedMultiplier * seatVariance);
 
     let arrHour = depHour + durationHours;
-    let arrMin = depMin + durationMins;
+    let arrMin  = depMin + durationMins;
     if (arrMin >= 60) { arrHour += 1; arrMin -= 60; }
     arrHour = arrHour % 24;
 
     const fmt = (h, m) => `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
-    const stopChance = Math.random();
 
     flights.push({
       id: i + 1,
@@ -218,11 +289,61 @@ function buildMockFlights(from, to, count = 12, targetDate = null) {
       dep: fmt(depHour, depMin),
       arr: fmt(arrHour, arrMin),
       duration: `${durationHours}h ${durationMins}m`,
-      stops: stopChance > 0.75 ? '1 Stop' : stopChance > 0.95 ? '2 Stops' : 'Direct',
+      stops: stopsLabel,
       baggage: airline.name === 'Air India' || airline.name === 'Vistara' ? '23 kg' : '15 kg',
       meal: airline.name === 'Vistara' || airline.name === 'Air India' ? 'Included' : 'Standard'
     });
   }
+  return flights;
+}
+
+function adjustFlightPrices(flights, from, to, targetDate) {
+  if (!flights || flights.length === 0) return flights;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const [y, m, d] = targetDate.split('-').map(Number);
+  const travel = new Date(y, m - 1, d);
+  const daysAhead = Math.floor((travel - today) / (1000 * 60 * 60 * 24));
+
+  const f = from.toLowerCase();
+  const t = to.toLowerCase();
+
+  const longHaul = ['london','new york','paris','tokyo','lhr','jfk','cdg','nrt'];
+  const regional = ['dubai','singapore','bangkok','bali','colombo','kathmandu','dxb','sin','bkk'];
+
+  let targetMinPrice = 2000; // Default for domestic green dot
+  if (longHaul.some(c => f.includes(c) || t.includes(c))) {
+    // Long haul international
+    if (daysAhead <= 0) targetMinPrice = 45000;
+    else if (daysAhead <= 2) targetMinPrice = 42000;
+    else if (daysAhead <= 21) targetMinPrice = 36000;
+    else targetMinPrice = 30000;
+  } else if (regional.some(c => f.includes(c) || t.includes(c))) {
+    // Regional international
+    if (daysAhead <= 0) targetMinPrice = 14000;
+    else if (daysAhead <= 2) targetMinPrice = 12500;
+    else if (daysAhead <= 21) targetMinPrice = 10000;
+    else targetMinPrice = 8000;
+  } else {
+    // Domestic
+    if (daysAhead <= 0) targetMinPrice = 4000; // Starts from 4k for present day!
+    else if (daysAhead <= 2) targetMinPrice = 3500;
+    else if (daysAhead <= 21) targetMinPrice = 2800;
+    else targetMinPrice = 2000;
+  }
+
+  // Find current minimum price
+  const currentMinPrice = Math.min(...flights.map(f => f.price));
+  if (currentMinPrice <= 0) return flights;
+
+  const scaleFactor = targetMinPrice / currentMinPrice;
+
+  // Apply scaling
+  flights.forEach(flight => {
+    flight.price = Math.floor(flight.price * scaleFactor);
+  });
+
   return flights;
 }
 
@@ -279,6 +400,9 @@ router.get('/', async (req, res) => {
         };
       });
 
+      // Scale/adjust prices to match dot colors and the 4k minimum rule
+      adjustFlightPrices(apiFlights, from, to, targetDate);
+
       // Compute filter summary prices
       const getDurMins = d => { const [h,m] = d.match(/\d+/g); return +h*60 + +m; };
       const byPrice = [...apiFlights].sort((a,b) => a.price - b.price);
@@ -291,8 +415,11 @@ router.get('/', async (req, res) => {
         from, to, date: targetDate,
         flights: apiFlights,
         filterPrices: {
+          // cheapest = lowest price (may be slow/stop flight)
           cheapest: byPrice[0]?.price,
-          fastest:  bySpeed[bySpeed.length - 1]?.price,  // fastest = shortest duration, typically higher price
+          // fastest = shortest duration flight's price (direct, premium — should be HIGHER)
+          fastest:  bySpeed[0]?.price,
+          // best = optimal price+speed balance (should sit between cheapest & fastest)
           best:     byBest[0]?.price
         },
         source: 'skyscanner-live'
@@ -305,6 +432,10 @@ router.get('/', async (req, res) => {
     console.log('Skyscanner API Error:', error.message, '— using market-realistic fallback');
 
     const mockFlights = buildMockFlights(from, to, 12, targetDate);
+
+    // Scale/adjust prices to match dot colors and the 4k minimum rule
+    adjustFlightPrices(mockFlights, from, to, targetDate);
+
     const getDurMins = d => { const m = d.match(/\d+/g); return +m[0]*60 + +m[1]; };
     const byPrice = [...mockFlights].sort((a,b) => a.price - b.price);
     const bySpeed = [...mockFlights].sort((a,b) => getDurMins(a.duration) - getDurMins(b.duration));
@@ -316,8 +447,11 @@ router.get('/', async (req, res) => {
       from, to, date: targetDate,
       flights: mockFlights,
       filterPrices: {
+        // cheapest = lowest price (budget, slow or stops)
         cheapest: byPrice[0]?.price,
-        fastest:  bySpeed[bySpeed.length - 1]?.price,
+        // fastest = shortest duration flight's price (direct, premium — HIGHER than cheapest)
+        fastest:  bySpeed[0]?.price,
+        // best = optimal balance (between cheapest & fastest)
         best:     byBest[0]?.price
       },
       source: 'market-proxy'
@@ -381,6 +515,8 @@ router.post('/multi', async (req, res) => {
             baggage: '15 kg', meal: 'Standard'
           };
         });
+        // Scale/adjust prices to match dot colors and the 4k minimum rule
+        adjustFlightPrices(apiFlights, from, to, date);
       }
       return { leg: i + 1, from, to, date, flights: apiFlights };
     }));
@@ -393,8 +529,11 @@ router.post('/multi', async (req, res) => {
       const from = leg.from || 'Mumbai';
       const to = leg.to || 'Delhi';
       const date = leg.date || new Date().toISOString().split('T')[0];
-      const flights = buildMockFlights(from, to, 8, date).sort((a,b) => a.price - b.price).map((f,idx) => ({...f, id: idx+1}));
-      return { leg: i + 1, from, to, date, flights, source: 'market-proxy' };
+      const flights = buildMockFlights(from, to, 8, date);
+      adjustFlightPrices(flights, from, to, date);
+      flights.sort((a,b) => a.price - b.price);
+      const formattedFlights = flights.map((f,idx) => ({...f, id: idx+1}));
+      return { leg: i + 1, from, to, date, flights: formattedFlights, source: 'market-proxy' };
     });
 
     return res.json({ success: true, type: 'multi-city', legs: results });

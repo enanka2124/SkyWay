@@ -6,10 +6,10 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
 
-  // Load user from localStorage on mount and verify with server
+  // Load user from sessionStorage on mount and verify with server
   useEffect(() => {
     const checkAuth = async () => {
-      const stored = localStorage.getItem('skyway_user')
+      const stored = sessionStorage.getItem('skyway_user')
       if (stored) {
         try {
           const parsed = JSON.parse(stored)
@@ -23,14 +23,14 @@ export function AuthProvider({ children }) {
           
           if (!data.success) {
             setUser(null)
-            localStorage.removeItem('skyway_user')
+            sessionStorage.removeItem('skyway_user')
           } else {
             // Keep state in sync with server data
             setUser(data.user)
-            localStorage.setItem('skyway_user', JSON.stringify(data.user))
+            sessionStorage.setItem('skyway_user', JSON.stringify(data.user))
           }
         } catch (err) {
-          localStorage.removeItem('skyway_user')
+          sessionStorage.removeItem('skyway_user')
           setUser(null)
         }
       }
@@ -49,7 +49,7 @@ export function AuthProvider({ children }) {
     const data = await res.json()
     if (data.success) {
       setUser(data.user)
-      localStorage.setItem('skyway_user', JSON.stringify(data.user))
+      sessionStorage.setItem('skyway_user', JSON.stringify(data.user))
       return { success: true }
     }
     return { success: false, error: data.error}
@@ -63,15 +63,48 @@ export function AuthProvider({ children }) {
     const data = await res.json()
     if (data.success) {
       setUser(data.user)
-      localStorage.setItem('skyway_user', JSON.stringify(data.user))
+      sessionStorage.setItem('skyway_user', JSON.stringify(data.user))
     }
     return data;
   }
 
   const logout = () => {
     setUser(null)
-    localStorage.removeItem('skyway_user')
+    sessionStorage.removeItem('skyway_user')
   }
+
+  // Automatically log out user after 15 minutes of inactivity
+  useEffect(() => {
+    if (!user) return
+
+    let timeoutId
+
+    const resetTimer = () => {
+      if (timeoutId) clearTimeout(timeoutId)
+      timeoutId = setTimeout(() => {
+        console.log('User inactive for 15 minutes. Logging out...')
+        logout()
+      }, 15 * 60 * 1000)
+    }
+
+    // Initialize timer
+    resetTimer()
+
+    // Activity event listeners
+    const events = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart']
+    const handleActivity = () => resetTimer()
+
+    events.forEach(event => {
+      window.addEventListener(event, handleActivity)
+    })
+
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId)
+      events.forEach(event => {
+        window.removeEventListener(event, handleActivity)
+      })
+    }
+  }, [user])
 
   const forgotPassword = async (email) => {
     const res = await fetch('/api/auth/forgot-password', {
