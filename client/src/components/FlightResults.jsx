@@ -82,17 +82,12 @@ export default function FlightResults({ flights, from, to, date, returnDate, tri
         <div className="results-header flex items-center justify-between flex-wrap gap-3" style={{ marginBottom: '2.25rem' }}>
           <div>
             <div className="font-syne text-xl font-bold">
-              {loading ? 'Searching live prices…' : (
+              {loading ? 'Searching flights…' : (
                 <><span>{sortedFlights.length} flights</span>&nbsp;{from} → {to}&nbsp;
                   <span className="text-text-muted text-sm">{dateStr}</span>
                 </>
               )}
             </div>
-            {!loading && sortedFlights.length > 0 && (
-              <div className="text-xs mt-1" style={{ color: '#22d07a', opacity: 0.85 }}>
-                ✓ Live market prices
-              </div>
-            )}
           </div>
 
           {/* Filter tabs with price hints */}
