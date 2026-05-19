@@ -179,6 +179,16 @@ export default function Navbar() {
                       >
                         ✈ My Trips
                       </Link>
+                      <Link
+                        to="/account-details"
+                        className="block px-4 py-2.5 text-sm text-text-muted no-underline transition-colors"
+                        style={{ transition: 'all 0.15s' }}
+                        onClick={() => setProfileOpen(false)}
+                        onMouseEnter={handleMenuEnter}
+                        onMouseLeave={handleMenuLeave}
+                      >
+                        ⚙️ Account Details
+                      </Link>
                       <button
                         onClick={handleLogout}
                         className="w-full text-left px-4 py-2.5 text-sm bg-transparent border-none cursor-pointer transition-colors"
@@ -243,6 +253,7 @@ export default function Navbar() {
           {user ? (
             <>
               <div className="text-text-muted text-sm">Signed in as {user.firstName}</div>
+              <Link to="/account-details" className="btn-ghost text-base px-8 py-3 mt-4 text-center no-underline" onClick={closeMenu}>Account Details</Link>
               <button className="btn-accent text-base px-8 py-3" onClick={() => { closeMenu(); handleLogout() }}>Sign Out</button>
             </>
           ) : (

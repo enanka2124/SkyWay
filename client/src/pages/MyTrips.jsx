@@ -86,17 +86,20 @@ export default function MyTrips() {
   const [cancelConfirm, setCancelConfirm] = useState(null) // trip index to confirm cancel
   const [viewDetails, setViewDetails] = useState(null) // trip object for details modal
 
+  const tripsKey = `skyway_trips_${user?._id || 'guest'}`
+
   useEffect(() => {
-    const stored = JSON.parse(localStorage.getItem('skyway_trips') || '[]')
+    if (!user) return;
+    const stored = JSON.parse(localStorage.getItem(tripsKey) || '[]')
     setTrips(stored)
-  }, [])
+  }, [user, tripsKey])
 
   if (loading) return null;
   if (!user) return <Navigate to="/signin" replace />;
 
   const clearTrips = () => {
     if (confirm('Clear all trip history?')) {
-      localStorage.removeItem('skyway_trips')
+      localStorage.removeItem(tripsKey)
       setTrips([])
     }
   }
@@ -114,7 +117,7 @@ export default function MyTrips() {
       const updated = [...trips]
       updated[cancelConfirm] = { ...updated[cancelConfirm], status: 'cancelled', cancelledAt: new Date().toISOString() }
       setTrips(updated)
-      localStorage.setItem('skyway_trips', JSON.stringify(updated))
+      localStorage.setItem(tripsKey, JSON.stringify(updated))
       setCancellingId(null)
       setCancelConfirm(null)
     }, 1200)

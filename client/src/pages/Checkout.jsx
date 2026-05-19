@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react'
 import { useLocation, useNavigate, Link } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
 import PaymentModal from '../components/PaymentModal'
 
 export default function Checkout() {
+  const { user } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
   const booking = location.state // { type: 'flight'|'hotel'|'deal', data: {...}, searchInfo: {...} }
@@ -95,8 +97,9 @@ export default function Checkout() {
 
     setTicketId(id)
 
-    // Save to localStorage
-    const trips = JSON.parse(localStorage.getItem('skyway_trips') || '[]')
+    // Save to localStorage using user-specific key
+    const tripsKey = `skyway_trips_${user?._id || 'guest'}`
+    const trips = JSON.parse(localStorage.getItem(tripsKey) || '[]')
     const tripEntry = {
       type: type === 'deal' ? 'flight' : type,
       ticketId: id,
@@ -111,7 +114,7 @@ export default function Checkout() {
       bookedAt: new Date().toISOString(),
     }
     trips.push(tripEntry)
-    localStorage.setItem('skyway_trips', JSON.stringify(trips))
+    localStorage.setItem(tripsKey, JSON.stringify(trips))
 
     // Also try server booking
     try {

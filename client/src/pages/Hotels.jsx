@@ -308,6 +308,12 @@ export default function Hotels() {
                 </div>
               )}
 
+              <div className="flex items-center justify-between mb-8 flex-wrap gap-3">
+                <div className="font-syne text-xl font-bold">
+                  {hotels.length} hotels found in {city}
+                </div>
+              </div>
+
               <div className="routes-grid" style={{ gap: '1.5rem' }}>
                 {hotels.length === 0 ? (
                   <div className="text-center text-text-muted py-12" style={{ gridColumn: '1/-1' }}>No hotels found for "{city}". Try Mumbai, Goa, Delhi, Bangalore, Chennai, or Dubai.</div>

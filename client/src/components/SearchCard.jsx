@@ -92,19 +92,23 @@ export default function SearchCard({ onSearch, initialFrom, initialTo, initialDa
   const returnRef = useRef(null)
 
   /**
-   * Deterministic hash to simulate historical demand data for the calendar.
-   * Ensures the colors are consistent across renders for the same date.
+   * Date-proximity demand color — matches backend surge pricing EXACTLY.
+   * Parses date as LOCAL time (not UTC) to avoid IST timezone shift bug.
+   *
+   *  🔴 Red    0–3 days   → last-minute surge +55–130%  (most expensive)
+   *  🟡 Yellow 4–21 days  → moderate/normal pricing     (medium price)
+   *  🟢 Green  22+ days   → advance booking -6 to -16%  (cheapest)
    */
   const getDemandColorForDate = (dateStr) => {
-    if (!dateStr) return '#22c55e' // Default to Low Demand
-    const parts = dateStr.split('-')
-    if (parts.length === 3) {
-      const [year, month, day] = parts.map(Number)
-      const seed = year + (month - 1) + day
-      if (seed % 5 === 0) return '#ef4444' // High demand
-      if (seed % 3 === 0) return '#eab308' // Medium demand
-    }
-    return '#22c55e' // Low demand
+    if (!dateStr) return '#22c55e'
+    const today = new Date(); today.setHours(0, 0, 0, 0)
+    // Parse as LOCAL date to avoid UTC/IST timezone shift
+    const [y, mo, d] = dateStr.split('-').map(Number)
+    const travel = new Date(y, mo - 1, d)  // local midnight
+    const daysAhead = Math.floor((travel - today) / (1000 * 60 * 60 * 24))
+    if (daysAhead <= 3)  return '#ef4444' // 🔴 0–3 days: last-minute, very expensive
+    if (daysAhead <= 21) return '#eab308' // 🟡 4–21 days: near, medium price
+    return '#22c55e'                       // 🟢 22+ days: advance, cheapest
   }
 
   // Handle clicks outside of custom calendars to close them
@@ -144,15 +148,41 @@ export default function SearchCard({ onSearch, initialFrom, initialTo, initialDa
 
   // A custom, premium calendar implementation for better UX
   const CustomCalendar = ({ value, onChange, onClose }) => {
-    const baseDate = new Date(value || new Date())
-    const yr = baseDate.getFullYear()
-    const mo = baseDate.getMonth()
+    const [viewDate, setViewDate] = useState(new Date(value || new Date()))
+    
+    // Limits
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    const maxDate = new Date(today);
+    maxDate.setMonth(today.getMonth() + 3);
+
+    const yr = viewDate.getFullYear()
+    const mo = viewDate.getMonth()
     const daysCount = new Date(yr, mo + 1, 0).getDate()
     const startDay = new Date(yr, mo, 1).getDay()
 
     const calendarGrid = []
     for (let i = 0; i < startDay; i++) calendarGrid.push(null)
     for (let i = 1; i <= daysCount; i++) calendarGrid.push(i)
+
+    const handlePrev = (e) => {
+      e.stopPropagation();
+      const prev = new Date(yr, mo - 1, 1);
+      if (prev.getFullYear() > today.getFullYear() || (prev.getFullYear() === today.getFullYear() && prev.getMonth() >= today.getMonth())) {
+        setViewDate(prev);
+      }
+    }
+
+    const handleNext = (e) => {
+      e.stopPropagation();
+      const next = new Date(yr, mo + 1, 1);
+      if (next.getFullYear() < maxDate.getFullYear() || (next.getFullYear() === maxDate.getFullYear() && next.getMonth() <= maxDate.getMonth())) {
+        setViewDate(next);
+      }
+    }
+    
+    const canPrev = yr > today.getFullYear() || (yr === today.getFullYear() && mo > today.getMonth());
+    const canNext = yr < maxDate.getFullYear() || (yr === maxDate.getFullYear() && mo < maxDate.getMonth());
 
     return (
       <div
@@ -164,8 +194,10 @@ export default function SearchCard({ onSearch, initialFrom, initialTo, initialDa
           boxShadow: '0 20px 60px rgba(0,0,0,0.6)'
         }}
       >
-        <div className="flex justify-between mb-4 font-bold text-white">
-          <span>{baseDate.toLocaleString('default', { month: 'long', year: 'numeric' })}</span>
+        <div className="flex justify-between items-center mb-4 font-bold text-white">
+          <button type="button" onClick={handlePrev} disabled={!canPrev} className={`p-1.5 rounded-md leading-none transition-colors border-none bg-transparent text-white ${!canPrev ? 'opacity-30 cursor-not-allowed' : 'hover:bg-white/10 cursor-pointer'}`}>&lt;</button>
+          <span>{viewDate.toLocaleString('default', { month: 'long', year: 'numeric' })}</span>
+          <button type="button" onClick={handleNext} disabled={!canNext} className={`p-1.5 rounded-md leading-none transition-colors border-none bg-transparent text-white ${!canNext ? 'opacity-30 cursor-not-allowed' : 'hover:bg-white/10 cursor-pointer'}`}>&gt;</button>
         </div>
         <div className="grid grid-cols-7 gap-1 text-center text-xs text-text-muted mb-2">
           {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(day => <div key={day}>{day}</div>)}
@@ -176,14 +208,15 @@ export default function SearchCard({ onSearch, initialFrom, initialTo, initialDa
             const dateStr = `${yr}-${String(mo + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`
             const demandColor = getDemandColorForDate(dateStr)
             const isSelected = value === dateStr
-            const isBlocked = new Date(dateStr) < new Date(new Date().setHours(0, 0, 0, 0))
+            const isBlocked = new Date(dateStr) < today || new Date(dateStr) > maxDate
 
             return (
               <button
+                type="button"
                 key={idx}
-                onClick={() => { if (!isBlocked) { onChange(dateStr); onClose() } }}
+                onClick={(e) => { e.stopPropagation(); if (!isBlocked) { onChange(dateStr); onClose() } }}
                 disabled={isBlocked}
-                className={`p-2 rounded-lg text-sm transition-all ${isBlocked ? 'opacity-30 cursor-not-allowed' : 'hover:bg-white/10 relative'} ${isSelected ? 'bg-white/20 font-bold text-white ring-1 ring-white/30' : 'text-white/80'}`}
+                className={`p-2 rounded-lg text-sm border-none transition-all ${isBlocked ? 'opacity-30 cursor-not-allowed' : 'hover:bg-white/10 relative cursor-pointer'} ${isSelected ? 'bg-white/20 font-bold text-white ring-1 ring-white/30' : 'text-white/80 bg-transparent'}`}
               >
                 {dayNum}
                 {!isBlocked && (

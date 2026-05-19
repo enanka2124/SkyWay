@@ -10,6 +10,7 @@ import Footer from '../components/Footer'
 
 export default function Home() {
   const [flights, setFlights] = useState([])
+  const [filterPrices, setFilterPrices] = useState(null)
   const [showResults, setShowResults] = useState(false)
   const [loading, setLoading] = useState(false)
   const [searchParams, setSearchParams] = useState({ from: '', to: '', date: '' })
@@ -44,27 +45,11 @@ export default function Home() {
         if (data.success) {
           let updatedFlights = [...data.flights]
 
-          // 1. Force strict price-to-duration link on the frontend
+          // 1. Sort by price
           updatedFlights.sort((a, b) => a.price - b.price);
-          const strictDurations = ['4h 30m', '3h 45m', '3h 15m', '2h 20m', '2h 05m', '1h 45m', '1h 20m', '1h 05m'];
-          const strictStops = ['1 Stop', '1 Stop', '1 Stop', 'Direct', 'Direct', 'Direct', 'Direct', 'Direct'];
-          updatedFlights = updatedFlights.map((f, i) => ({
-             ...f,
-             duration: strictDurations[i] || f.duration,
-             stops: strictStops[i] || f.stops
-          }));
 
-          // 2. Determine Date Demand Multiplier (Red = 2.5, Yellow = 1.5)
-          const parts = depart.split('-');
-          let demandMultiplier = 1.0; // Green (Normal Price)
-          if (parts.length === 3) {
-            const [y, m, d] = parts.map(Number);
-            const hash = y + (m - 1) + d;
-            if (hash % 5 === 0) demandMultiplier = 2.5; // Red (Low Availability / 2x-3x Price)
-            else if (hash % 3 === 0) demandMultiplier = 1.5; // Yellow (Medium Availability / 1.5x Price)
-          }
-
-          // Apply dynamic markup for Round Trip based on date gap
+          // 2. Round-trip total simulation
+          // Since the API currently fetches one-way flights, we multiply the price for round-trips
           let tripMultiplier = 1.0;
           if (tripType === 'round') {
             const departD = new Date(depart);
@@ -78,14 +63,13 @@ export default function Home() {
             } else if (gapDays === 2) {
               tripMultiplier = 2.5;
             } else {
-              tripMultiplier = gapDays; // 3 days -> 3x, 4 days -> 4x
+              tripMultiplier = gapDays > 14 ? 14 : gapDays; // cap at 14x
             }
           }
-          const finalMultiplier = demandMultiplier * tripMultiplier;
 
-          // 3. Apply Multipliers and/or Deal logic
+          // Apply Deal logic if present (promotional override)
           if (dealPrice && updatedFlights.length > 0) {
-            const basePrice = parseInt(dealPrice, 10) * finalMultiplier;
+            const basePrice = parseInt(dealPrice, 10) * tripMultiplier;
             updatedFlights = updatedFlights.map((f, i) => {
               const isDeal = i < 6;
               return {
@@ -95,14 +79,18 @@ export default function Home() {
                 discount: isDeal ? (parseInt(dealDiscount, 10) || 0) : 0
               }
             })
-          } else {
+          } else if (tripMultiplier > 1.0) {
             updatedFlights = updatedFlights.map(f => ({
               ...f,
-              price: Math.floor(f.price * finalMultiplier)
+              price: Math.floor(f.price * tripMultiplier)
             }))
           }
           
           setFlights(updatedFlights)
+          setFilterPrices(data.filterPrices || null)
+        } else {
+          setFlights([]);
+          alert(data.error || "Failed to fetch flights");
         }
         setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100)
       }, 800)
@@ -139,7 +127,7 @@ export default function Home() {
               </div>
             </div>
           )}
-          <FlightResults flights={flights} from={searchParams.from} to={searchParams.to} date={searchParams.date} returnDate={searchParams.returnDate} tripType={searchParams.tripType} loading={loading} />
+          <FlightResults flights={flights} from={searchParams.from} to={searchParams.to} date={searchParams.date} returnDate={searchParams.returnDate} tripType={searchParams.tripType} loading={loading} filterPrices={filterPrices} />
           <div className="section-divider"></div>
         </div>
       )}

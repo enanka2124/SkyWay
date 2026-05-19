@@ -10,6 +10,7 @@ export default function PaymentModal({ amount, bookingInfo, onSuccess, onClose }
   const [bank, setBank] = useState('')
   const [processing, setProcessing] = useState(false)
   const [status, setStatus] = useState(null) // null, 'processing', 'success', 'failed'
+  const [error, setError] = useState('')
 
   const formatCardNumber = (val) => {
     const digits = val.replace(/\D/g, '').slice(0, 16)
@@ -33,7 +34,13 @@ export default function PaymentModal({ amount, bookingInfo, onSuccess, onClose }
   }
 
   const handlePay = async () => {
-    if (!isFormValid()) { alert('Please fill all payment details correctly'); return }
+    if (!isFormValid()) { 
+      if (method === 'card') setError('Invalid input: Please enter a valid 16-digit card number, valid expiry (MM/YY), and CVV.')
+      else if (method === 'upi') setError('Invalid input: Please enter a valid UPI ID (e.g., name@okbank).')
+      else setError('Invalid input: Please select a bank for Net Banking.')
+      return 
+    }
+    setError('')
     setProcessing(true); setStatus('processing')
 
     try {
@@ -87,7 +94,7 @@ export default function PaymentModal({ amount, bookingInfo, onSuccess, onClose }
               ].map(m => (
                 <button key={m.id} className={`flex-1 py-2.5 rounded-lg text-sm font-medium cursor-pointer border transition-all ${method === m.id ? 'text-accent' : 'text-text-muted'}`}
                   style={{ background: method === m.id ? 'rgba(245,166,35,0.12)' : 'rgba(255,255,255,0.04)', borderColor: method === m.id ? 'rgba(245,166,35,0.3)' : 'rgba(255,255,255,0.08)' }}
-                  onClick={() => setMethod(m.id)}>
+                  onClick={() => { setMethod(m.id); setError('') }}>
                   {m.label}
                 </button>
               ))}
@@ -140,7 +147,13 @@ export default function PaymentModal({ amount, bookingInfo, onSuccess, onClose }
               <span>256-bit SSL encrypted · Secured by Razorpay</span>
             </div>
 
-            <button className="confirm-btn" onClick={handlePay} disabled={!isFormValid()}>
+            {error && (
+              <div className="mt-4 p-3 rounded-lg text-sm font-medium" style={{ background: 'rgba(255,70,70,0.1)', color: '#ff4646', border: '1px solid rgba(255,70,70,0.3)' }}>
+                {error}
+              </div>
+            )}
+
+            <button className="confirm-btn" onClick={handlePay} style={{ marginTop: '1rem' }}>
               Pay ₹{amount.toLocaleString('en-IN')} →
             </button>
           </>

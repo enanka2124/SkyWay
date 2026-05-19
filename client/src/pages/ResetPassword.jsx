@@ -8,7 +8,7 @@ import toast from 'react-hot-toast'
 export default function ResetPassword() {
   const { token } = useParams()
   const navigate = useNavigate()
-  const { resetPassword } = useAuth()
+  const { resetPassword, logout, user } = useAuth()
   
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -19,10 +19,13 @@ export default function ResetPassword() {
 
   useEffect(() => {
     window.scrollTo(0, 0)
+    if (user) {
+      logout() // Force logout so UI doesn't show them as logged in while resetting
+    }
     if (!token) {
       navigate('/signin')
     }
-  }, [token, navigate])
+  }, [token, navigate, user, logout])
 
   const handleReset = async (e) => {
     e.preventDefault()
