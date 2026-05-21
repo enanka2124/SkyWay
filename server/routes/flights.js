@@ -57,14 +57,14 @@ const AIRPORT_MAP = {
 const popularRoutes = [
   { id: 1,  from: 'Mumbai',    fromCode: 'BOM', to: 'Goa',       toCode: 'GOI', price: 4199,  duration: '1h 10m',  stops: 'Direct', image: 'https://images.unsplash.com/photo-1512343879784-a960bf40e7f2?w=400&q=80' },
   { id: 2,  from: 'Delhi',     fromCode: 'DEL', to: 'Bangalore', toCode: 'BLR', price: 6899,  duration: '2h 40m',  stops: 'Direct', image: 'https://images.unsplash.com/photo-1596176530529-78163a4f7af2?w=400&q=80' },
-  { id: 3,  from: 'Bangalore', fromCode: 'BLR', to: 'Chennai',   toCode: 'MAA', price: 3499,  duration: '1h 5m',   stops: 'Direct', image: 'https://images.unsplash.com/photo-1582510003544-4d00b7f74220?w=400&q=80' },
+  { id: 3,  from: 'Bangalore', fromCode: 'BLR', to: 'Chennai',   toCode: 'MAA', price: 4299,  duration: '1h 5m',   stops: 'Direct', image: 'https://images.unsplash.com/photo-1582510003544-4d00b7f74220?w=400&q=80' },
   { id: 4,  from: 'Mumbai',    fromCode: 'BOM', to: 'Dubai',     toCode: 'DXB', price: 18499, duration: '3h 15m',  stops: 'Direct', image: 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=400&q=80' },
-  { id: 5,  from: 'Delhi',     fromCode: 'DEL', to: 'Jaipur',    toCode: 'JAI', price: 3199,  duration: '1h 5m',   stops: 'Direct', image: 'https://images.unsplash.com/photo-1599661046289-e31897846e41?w=400&q=80' },
+  { id: 5,  from: 'Delhi',     fromCode: 'DEL', to: 'Jaipur',    toCode: 'JAI', price: 4199,  duration: '1h 5m',   stops: 'Direct', image: 'https://images.unsplash.com/photo-1599661046289-e31897846e41?w=400&q=80' },
   { id: 6,  from: 'Mumbai',    fromCode: 'BOM', to: 'Kolkata',   toCode: 'CCU', price: 7499,  duration: '2h 35m',  stops: 'Direct', image: 'https://images.unsplash.com/photo-1558431382-27e303142255?w=400&q=80' },
   { id: 7,  from: 'Hyderabad', fromCode: 'HYD', to: 'Delhi',     toCode: 'DEL', price: 5899,  duration: '2h 10m',  stops: 'Direct', image: 'https://images.unsplash.com/photo-1587474260584-136574528ed5?w=400&q=80' },
   { id: 8,  from: 'Chennai',   fromCode: 'MAA', to: 'Mumbai',    toCode: 'BOM', price: 5399,  duration: '1h 50m',  stops: 'Direct', image: 'https://images.unsplash.com/photo-1570168007204-dfb528c6958f?w=400&q=80' },
   { id: 9,  from: 'Delhi',     fromCode: 'DEL', to: 'Manali',    toCode: 'KUU', price: 6199,  duration: '1h 30m',  stops: 'Direct', image: 'https://images.unsplash.com/photo-1626621341517-bbf3d9990a23?w=400&q=80' },
-  { id: 10, from: 'Bangalore', fromCode: 'BLR', to: 'Goa',       toCode: 'GOI', price: 3899,  duration: '1h 15m',  stops: 'Direct', image: 'https://images.unsplash.com/photo-1614082242765-7c98ca0f3df3?w=400&q=80' },
+  { id: 10, from: 'Bangalore', fromCode: 'BLR', to: 'Goa',       toCode: 'GOI', price: 4299,  duration: '1h 15m',  stops: 'Direct', image: 'https://images.unsplash.com/photo-1614082242765-7c98ca0f3df3?w=400&q=80' },
   { id: 11, from: 'Mumbai',    fromCode: 'BOM', to: 'Singapore', toCode: 'SIN', price: 21999, duration: '5h 30m',  stops: 'Direct', image: 'https://images.unsplash.com/photo-1525625293386-3f8f99389edd?w=400&q=80' },
   { id: 12, from: 'Delhi',     fromCode: 'DEL', to: 'Bangkok',   toCode: 'BKK', price: 16999, duration: '4h 20m',  stops: 'Direct', image: 'https://images.unsplash.com/photo-1508009603885-50cf7c579365?w=400&q=80' },
 ];
@@ -342,17 +342,17 @@ function adjustFlightPrices(flights, from, to, targetDate) {
   }
 
   // 2. Determine base limits based on date dot color (+2k increase applied to all)
-  let baseMin = 6000; // Green dot starting price (increased from 4k)
-  let baseMax = 17000; // Green dot max price (increased from 15k)
+  let baseMin = 4500; // Green dot starting price (increased to 4.5k)
+  let baseMax = 16000; // Green dot max price (increased to 16k)
 
   if (daysAhead <= 2) {
-    // Red dot: starts from 8k (increased from 6k)
-    baseMin = 8000;
-    baseMax = 24000;
-  } else if (daysAhead <= 21) {
-    // Yellow dot: starts from 7k (increased from 5k)
+    // Red dot: starts from 7k
     baseMin = 7000;
-    baseMax = 18500;
+    baseMax = 25000;
+  } else if (daysAhead <= 21) {
+    // Yellow dot: starts from 5.5k
+    baseMin = 5500;
+    baseMax = 19000;
   }
 
   // 3. Adjust bounds for international flights vs domestic locations
@@ -425,7 +425,7 @@ function adjustFlightPrices(flights, from, to, targetDate) {
     priceValue = Math.round(priceValue / 50) * 50 - 1;
 
     // Safety checks
-    const safetyMin = targetMinPrice * 0.95;
+    const safetyMin = Math.max(4000, targetMinPrice * 0.95);
     const safetyMax = targetMaxPrice * 1.05;
     flight.price = Math.max(Math.floor(safetyMin), Math.min(Math.floor(safetyMax), Math.floor(priceValue)));
   });
