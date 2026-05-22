@@ -97,6 +97,10 @@ export default function SearchCard({ onSearch, initialFrom, initialTo, initialDa
    *  🔴 Red    0–2 days   → last-minute surge (+150–250%) — MOST EXPENSIVE
    *  🟡 Yellow 3–21 days  → rising demand (+15–130%)      — MEDIUM PRICE
    *  🟢 Green  22+ days   → advance booking (0 to -12%)    — CHEAPEST
+   *
+   * Special rule: random green dots can appear scattered inside the yellow zone
+   * (at least 2 days after present / after the red zone ends), simulating
+   * flash sale / off-peak windows airlines occasionally offer mid-advance.
    */
   const getDemandColorForDate = (dateStr) => {
     if (!dateStr) return '#22c55e'
@@ -105,9 +109,16 @@ export default function SearchCard({ onSearch, initialFrom, initialTo, initialDa
     const [y, mo, d] = dateStr.split('-').map(Number)
     const travel = new Date(y, mo - 1, d)  // local midnight
     const daysAhead = Math.floor((travel - today) / (1000 * 60 * 60 * 24))
-    if (daysAhead <= 2)  return '#ef4444' // 🔴 0–2 days: last-minute surge (2.5–3.5x price)
-    if (daysAhead <= 21) return '#eab308' // 🟡 3–21 days: moderate to high price
-    return '#22c55e'                       // 🟢 22+ days: advance booking, cheapest
+    if (daysAhead <= 2)  return '#ef4444' // 🔴 0–2 days: last-minute surge
+    if (daysAhead >= 22) return '#22c55e' // 🟢 22+ days: advance booking, cheapest
+
+    // 🟡 Yellow zone (3–21 days): scatter random green "flash deal" dots.
+    // Use a deterministic seed from the date so the color is stable on re-renders.
+    const seed = y * 10000 + mo * 100 + d
+    const pseudo = ((seed * 1664525 + 1013904223) & 0x7fffffff) / 0x7fffffff // LCG [0,1)
+    // ~25% of yellow-zone days show as green (random flash deals)
+    if (pseudo < 0.25) return '#22c55e'  // 🟢 random flash-deal green inside yellow zone
+    return '#eab308'                     // 🟡 standard yellow
   }
 
   // Handle clicks outside of custom calendars to close them

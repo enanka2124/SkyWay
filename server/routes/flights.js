@@ -55,18 +55,18 @@ const AIRPORT_MAP = {
 };
 
 const popularRoutes = [
-  { id: 1,  from: 'Mumbai',    fromCode: 'BOM', to: 'Goa',       toCode: 'GOI', price: 4199,  duration: '1h 10m',  stops: 'Direct', image: 'https://images.unsplash.com/photo-1512343879784-a960bf40e7f2?w=400&q=80' },
-  { id: 2,  from: 'Delhi',     fromCode: 'DEL', to: 'Bangalore', toCode: 'BLR', price: 6899,  duration: '2h 40m',  stops: 'Direct', image: 'https://images.unsplash.com/photo-1596176530529-78163a4f7af2?w=400&q=80' },
-  { id: 3,  from: 'Bangalore', fromCode: 'BLR', to: 'Chennai',   toCode: 'MAA', price: 4299,  duration: '1h 5m',   stops: 'Direct', image: 'https://images.unsplash.com/photo-1582510003544-4d00b7f74220?w=400&q=80' },
-  { id: 4,  from: 'Mumbai',    fromCode: 'BOM', to: 'Dubai',     toCode: 'DXB', price: 18499, duration: '3h 15m',  stops: 'Direct', image: 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=400&q=80' },
-  { id: 5,  from: 'Delhi',     fromCode: 'DEL', to: 'Jaipur',    toCode: 'JAI', price: 4199,  duration: '1h 5m',   stops: 'Direct', image: 'https://images.unsplash.com/photo-1599661046289-e31897846e41?w=400&q=80' },
-  { id: 6,  from: 'Mumbai',    fromCode: 'BOM', to: 'Kolkata',   toCode: 'CCU', price: 7499,  duration: '2h 35m',  stops: 'Direct', image: 'https://images.unsplash.com/photo-1558431382-27e303142255?w=400&q=80' },
-  { id: 7,  from: 'Hyderabad', fromCode: 'HYD', to: 'Delhi',     toCode: 'DEL', price: 5899,  duration: '2h 10m',  stops: 'Direct', image: 'https://images.unsplash.com/photo-1587474260584-136574528ed5?w=400&q=80' },
-  { id: 8,  from: 'Chennai',   fromCode: 'MAA', to: 'Mumbai',    toCode: 'BOM', price: 5399,  duration: '1h 50m',  stops: 'Direct', image: 'https://images.unsplash.com/photo-1570168007204-dfb528c6958f?w=400&q=80' },
-  { id: 9,  from: 'Delhi',     fromCode: 'DEL', to: 'Manali',    toCode: 'KUU', price: 6199,  duration: '1h 30m',  stops: 'Direct', image: 'https://images.unsplash.com/photo-1626621341517-bbf3d9990a23?w=400&q=80' },
-  { id: 10, from: 'Bangalore', fromCode: 'BLR', to: 'Goa',       toCode: 'GOI', price: 4299,  duration: '1h 15m',  stops: 'Direct', image: 'https://images.unsplash.com/photo-1614082242765-7c98ca0f3df3?w=400&q=80' },
-  { id: 11, from: 'Mumbai',    fromCode: 'BOM', to: 'Singapore', toCode: 'SIN', price: 21999, duration: '5h 30m',  stops: 'Direct', image: 'https://images.unsplash.com/photo-1525625293386-3f8f99389edd?w=400&q=80' },
-  { id: 12, from: 'Delhi',     fromCode: 'DEL', to: 'Bangkok',   toCode: 'BKK', price: 16999, duration: '4h 20m',  stops: 'Direct', image: 'https://images.unsplash.com/photo-1508009603885-50cf7c579365?w=400&q=80' },
+  { id: 1, from: 'Mumbai', fromCode: 'BOM', to: 'Goa', toCode: 'GOI', price: 4199, duration: '1h 10m', stops: 'Direct', image: 'https://images.unsplash.com/photo-1512343879784-a960bf40e7f2?w=400&q=80' },
+  { id: 2, from: 'Delhi', fromCode: 'DEL', to: 'Bangalore', toCode: 'BLR', price: 6899, duration: '2h 40m', stops: 'Direct', image: 'https://images.unsplash.com/photo-1596176530529-78163a4f7af2?w=400&q=80' },
+  { id: 3, from: 'Bangalore', fromCode: 'BLR', to: 'Chennai', toCode: 'MAA', price: 4299, duration: '1h 5m', stops: 'Direct', image: 'https://images.unsplash.com/photo-1582510003544-4d00b7f74220?w=400&q=80' },
+  { id: 4, from: 'Mumbai', fromCode: 'BOM', to: 'Dubai', toCode: 'DXB', price: 18499, duration: '3h 15m', stops: 'Direct', image: 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=400&q=80' },
+  { id: 5, from: 'Delhi', fromCode: 'DEL', to: 'Jaipur', toCode: 'JAI', price: 4199, duration: '1h 5m', stops: 'Direct', image: 'https://images.unsplash.com/photo-1599661046289-e31897846e41?w=400&q=80' },
+  { id: 6, from: 'Mumbai', fromCode: 'BOM', to: 'Kolkata', toCode: 'CCU', price: 7499, duration: '2h 35m', stops: 'Direct', image: 'https://images.unsplash.com/photo-1558431382-27e303142255?w=400&q=80' },
+  { id: 7, from: 'Hyderabad', fromCode: 'HYD', to: 'Delhi', toCode: 'DEL', price: 5899, duration: '2h 10m', stops: 'Direct', image: 'https://images.unsplash.com/photo-1587474260584-136574528ed5?w=400&q=80' },
+  { id: 8, from: 'Chennai', fromCode: 'MAA', to: 'Mumbai', toCode: 'BOM', price: 5399, duration: '1h 50m', stops: 'Direct', image: 'https://images.unsplash.com/photo-1570168007204-dfb528c6958f?w=400&q=80' },
+  { id: 9, from: 'Delhi', fromCode: 'DEL', to: 'Manali', toCode: 'KUU', price: 6199, duration: '1h 30m', stops: 'Direct', image: 'https://images.unsplash.com/photo-1626621341517-bbf3d9990a23?w=400&q=80' },
+  { id: 10, from: 'Bangalore', fromCode: 'BLR', to: 'Goa', toCode: 'GOI', price: 4299, duration: '1h 15m', stops: 'Direct', image: 'https://images.unsplash.com/photo-1614082242765-7c98ca0f3df3?w=400&q=80' },
+  { id: 11, from: 'Mumbai', fromCode: 'BOM', to: 'Singapore', toCode: 'SIN', price: 21999, duration: '5h 30m', stops: 'Direct', image: 'https://images.unsplash.com/photo-1525625293386-3f8f99389edd?w=400&q=80' },
+  { id: 12, from: 'Delhi', fromCode: 'DEL', to: 'Bangkok', toCode: 'BKK', price: 16999, duration: '4h 20m', stops: 'Direct', image: 'https://images.unsplash.com/photo-1508009603885-50cf7c579365?w=400&q=80' },
 ];
 
 async function getAirportDetails(cityName) {
@@ -115,33 +115,33 @@ function getBasePrice(from, to) {
   const t = to.toLowerCase().replace(/\s*\(.*?\)/, '').trim();
 
   // Long-haul international (EU/US) — ₹38k–₹75k base (green dot; surge pushes to ₹90k+)
-  const longHaul = ['london','new york','paris','tokyo','lhr','jfk','cdg','nrt'];
+  const longHaul = ['london', 'new york', 'paris', 'tokyo', 'lhr', 'jfk', 'cdg', 'nrt'];
   if (longHaul.some(c => f.includes(c) || t.includes(c)))
     return Math.floor(Math.random() * 37000) + 38000;  // ₹38k–₹75k
 
   // Regional international (Gulf/SEA) — ₹11k–₹22k base
-  const regional = ['dubai','singapore','bangkok','bali','colombo','kathmandu','dxb','sin','bkk'];
+  const regional = ['dubai', 'singapore', 'bangkok', 'bali', 'colombo', 'kathmandu', 'dxb', 'sin', 'bkk'];
   if (regional.some(c => f.includes(c) || t.includes(c)))
     return Math.floor(Math.random() * 11000) + 11000;  // ₹11k–₹22k
 
   // Long domestic cross-country (2.5h+): BOM-CCU, DEL-MAA, BLR-DEL, etc. — ₹5,500–₹10,000
   const longPairs = [
-    ['mumbai','kolkata'],['delhi','chennai'],['bangalore','delhi'],
-    ['hyderabad','kolkata'],['mumbai','guwahati'],['delhi','kochi'],
-    ['mumbai','srinagar'],['chennai','amritsar'],['kolkata','delhi'],
-    ['bom','ccu'],['del','maa'],['blr','del'],
+    ['mumbai', 'kolkata'], ['delhi', 'chennai'], ['bangalore', 'delhi'],
+    ['hyderabad', 'kolkata'], ['mumbai', 'guwahati'], ['delhi', 'kochi'],
+    ['mumbai', 'srinagar'], ['chennai', 'amritsar'], ['kolkata', 'delhi'],
+    ['bom', 'ccu'], ['del', 'maa'], ['blr', 'del'],
   ];
-  if (longPairs.some(([a,b]) => (f.includes(a)&&t.includes(b))||(f.includes(b)&&t.includes(a))))
+  if (longPairs.some(([a, b]) => (f.includes(a) && t.includes(b)) || (f.includes(b) && t.includes(a))))
     return Math.floor(Math.random() * 4500) + 5500;   // ₹5,500–₹10,000
 
   // Medium domestic metro routes (1.5–2.5h): BOM-DEL, DEL-BLR, BOM-MAA, HYD-DEL, etc. — ₹3,500–₹8,000
   const medPairs = [
-    ['mumbai','delhi'],['delhi','bangalore'],['mumbai','chennai'],
-    ['hyderabad','delhi'],['pune','delhi'],['ahmedabad','delhi'],
-    ['mumbai','hyderabad'],['kolkata','bangalore'],['hyderabad','bangalore'],
-    ['bom','del'],['del','blr'],['bom','maa'],['hyd','del'],
+    ['mumbai', 'delhi'], ['delhi', 'bangalore'], ['mumbai', 'chennai'],
+    ['hyderabad', 'delhi'], ['pune', 'delhi'], ['ahmedabad', 'delhi'],
+    ['mumbai', 'hyderabad'], ['kolkata', 'bangalore'], ['hyderabad', 'bangalore'],
+    ['bom', 'del'], ['del', 'blr'], ['bom', 'maa'], ['hyd', 'del'],
   ];
-  if (medPairs.some(([a,b]) => (f.includes(a)&&t.includes(b))||(f.includes(b)&&t.includes(a))))
+  if (medPairs.some(([a, b]) => (f.includes(a) && t.includes(b)) || (f.includes(b) && t.includes(a))))
     return Math.floor(Math.random() * 4500) + 3500;   // ₹3,500–₹8,000
 
   // Short domestic nearby routes (<1.5h): BLR-MAA, BOM-GOI, DEL-JAI, etc. — ₹1,800–₹5,000
@@ -180,12 +180,12 @@ function getDateSurgeMultiplier(targetDate) {
   const daysAhead = Math.floor((travel - today) / (1000 * 60 * 60 * 24));
 
   // 🔴 RED — Last-minute: +150–250% surge (real airlines charge 2.5–3.5x for last-minute)
-  if (daysAhead <= 0)  return 3.00 + Math.random() * 0.50; // today: +200–250% (seat scarcity)
-  if (daysAhead <= 2)  return 2.50 + Math.random() * 0.50; // 1–2 days: +150–200%
+  if (daysAhead <= 0) return 3.00 + Math.random() * 0.50; // today: +200–250% (seat scarcity)
+  if (daysAhead <= 2) return 2.50 + Math.random() * 0.50; // 1–2 days: +150–200%
 
   // 🟡 YELLOW — Near-term: +30–150% (rising demand as travel approaches)
-  if (daysAhead <= 4)  return 1.90 + Math.random() * 0.40; // 3–4 days: +90–130%
-  if (daysAhead <= 7)  return 1.55 + Math.random() * 0.35; // 5–7 days: +55–90%
+  if (daysAhead <= 4) return 1.90 + Math.random() * 0.40; // 3–4 days: +90–130%
+  if (daysAhead <= 7) return 1.55 + Math.random() * 0.35; // 5–7 days: +55–90%
   if (daysAhead <= 14) return 1.30 + Math.random() * 0.20; // 1–2 weeks: +30–50%
   if (daysAhead <= 21) return 1.15 + Math.random() * 0.15; // 3 weeks: +15–30%
 
@@ -201,25 +201,25 @@ function getDateSurgeMultiplier(targetDate) {
  */
 function getDateDotColor(targetDate) {
   if (!targetDate) return 'green';
-  const today = new Date(); today.setHours(0,0,0,0);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
   const [y, m, d] = targetDate.split('-').map(Number);
   const travel = new Date(y, m - 1, d);
-  const daysAhead = Math.floor((travel - today) / (1000*60*60*24));
-  if (daysAhead <= 2)  return 'red';    // 🔴 0–2 days: last-minute surge (most expensive)
+  const daysAhead = Math.floor((travel - today) / (1000 * 60 * 60 * 24));
+  if (daysAhead <= 2) return 'red';    // 🔴 0–2 days: last-minute surge (most expensive)
   if (daysAhead <= 21) return 'yellow'; // 🟡 3–21 days: moderate/high price
   return 'green';                        // 🟢 22+ days: advance booking (cheapest)
 }
 
 function buildMockFlights(from, to, count = 12, targetDate = null) {
   const airlines = [
-    { name: 'IndiGo',    code: '6E', multiplier: 1.00 },
+    { name: 'IndiGo', code: '6E', multiplier: 1.00 },
     { name: 'Air India', code: 'AI', multiplier: 1.18 },
-    { name: 'Vistara',   code: 'UK', multiplier: 1.30 },
-    { name: 'SpiceJet',  code: 'SG', multiplier: 0.92 },
+    { name: 'Vistara', code: 'UK', multiplier: 1.30 },
+    { name: 'SpiceJet', code: 'SG', multiplier: 0.92 },
     { name: 'Akasa Air', code: 'QP', multiplier: 0.95 },
-    { name: 'Go First',  code: 'G8', multiplier: 0.88 },
+    { name: 'Go First', code: 'G8', multiplier: 0.88 },
     { name: 'Alliance Air', code: '9I', multiplier: 1.05 },
-    { name: 'Star Air',  code: 'S5', multiplier: 0.97 },
+    { name: 'Star Air', code: 'S5', multiplier: 0.97 },
   ];
 
   const basePrice = getBasePrice(from, to);
@@ -243,10 +243,10 @@ function buildMockFlights(from, to, count = 12, targetDate = null) {
 
     // Duration is correlated with stops (stops add 1-3 extra hours)
     const baseDurHours = Math.floor(Math.random() * 2) + 1;  // 1-2h for direct
-    const extraHours   = stopsLabel === '2 Stops' ? 3 : stopsLabel === '1 Stop' ? 2 : 0;
+    const extraHours = stopsLabel === '2 Stops' ? 3 : stopsLabel === '1 Stop' ? 2 : 0;
     const durationHours = baseDurHours + extraHours;
-    const durationMins  = Math.floor(Math.random() * 12) * 5;
-    const totalMins     = durationHours * 60 + durationMins;
+    const durationMins = Math.floor(Math.random() * 12) * 5;
+    const totalMins = durationHours * 60 + durationMins;
 
     /**
      * Speed premium — mirrors real airline pricing:
@@ -258,9 +258,9 @@ function buildMockFlights(from, to, count = 12, targetDate = null) {
      */
     let speedMultiplier;
     if (stopsLabel === 'Direct') {
-      if (totalMins <= 90)       speedMultiplier = 1.28 + Math.random() * 0.10; // 1.28–1.38
+      if (totalMins <= 90) speedMultiplier = 1.28 + Math.random() * 0.10; // 1.28–1.38
       else if (totalMins <= 150) speedMultiplier = 1.12 + Math.random() * 0.08; // 1.12–1.20
-      else                       speedMultiplier = 1.05 + Math.random() * 0.07; // 1.05–1.12
+      else speedMultiplier = 1.05 + Math.random() * 0.07; // 1.05–1.12
     } else if (stopsLabel === '1 Stop') {
       speedMultiplier = 0.82 + Math.random() * 0.08; // 0.82–0.90
     } else {
@@ -272,11 +272,11 @@ function buildMockFlights(from, to, count = 12, targetDate = null) {
     const price = Math.floor(basePrice * airline.multiplier * surgeMultiplier * speedMultiplier * seatVariance);
 
     let arrHour = depHour + durationHours;
-    let arrMin  = depMin + durationMins;
+    let arrMin = depMin + durationMins;
     if (arrMin >= 60) { arrHour += 1; arrMin -= 60; }
     arrHour = arrHour % 24;
 
-    const fmt = (h, m) => `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+    const fmt = (h, m) => `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 
     flights.push({
       id: i + 1,
@@ -309,25 +309,25 @@ function adjustFlightPrices(flights, from, to, targetDate) {
   const f = from.toLowerCase();
   const t = to.toLowerCase();
 
-  const longHaul = ['london','new york','paris','tokyo','lhr','jfk','cdg','nrt'];
-  const regional = ['dubai','singapore','bangkok','bali','colombo','kathmandu','dxb','sin','bkk'];
+  const longHaul = ['london', 'new york', 'paris', 'tokyo', 'lhr', 'jfk', 'cdg', 'nrt'];
+  const regional = ['dubai', 'singapore', 'bangkok', 'bali', 'colombo', 'kathmandu', 'dxb', 'sin', 'bkk'];
 
   // 1. Categorize route to set location-based price offsets
   const longPairs = [
-    ['mumbai','kolkata'],['delhi','chennai'],['bangalore','delhi'],
-    ['hyderabad','kolkata'],['mumbai','guwahati'],['delhi','kochi'],
-    ['mumbai','srinagar'],['chennai','amritsar'],['kolkata','delhi'],
-    ['bom','ccu'],['del','maa'],['blr','del'],
+    ['mumbai', 'kolkata'], ['delhi', 'chennai'], ['bangalore', 'delhi'],
+    ['hyderabad', 'kolkata'], ['mumbai', 'guwahati'], ['delhi', 'kochi'],
+    ['mumbai', 'srinagar'], ['chennai', 'amritsar'], ['kolkata', 'delhi'],
+    ['bom', 'ccu'], ['del', 'maa'], ['blr', 'del'],
   ];
   const medPairs = [
-    ['mumbai','delhi'],['delhi','bangalore'],['mumbai','chennai'],
-    ['hyderabad','delhi'],['pune','delhi'],['ahmedabad','delhi'],
-    ['mumbai','hyderabad'],['kolkata','bangalore'],['hyderabad','bangalore'],
-    ['bom','del'],['del','blr'],['bom','maa'],['hyd','del'],
+    ['mumbai', 'delhi'], ['delhi', 'bangalore'], ['mumbai', 'chennai'],
+    ['hyderabad', 'delhi'], ['pune', 'delhi'], ['ahmedabad', 'delhi'],
+    ['mumbai', 'hyderabad'], ['kolkata', 'bangalore'], ['hyderabad', 'bangalore'],
+    ['bom', 'del'], ['del', 'blr'], ['bom', 'maa'], ['hyd', 'del'],
   ];
 
-  let isLongDomestic = longPairs.some(([a,b]) => (f.includes(a)&&t.includes(b))||(f.includes(b)&&t.includes(a)));
-  let isMedDomestic = medPairs.some(([a,b]) => (f.includes(a)&&t.includes(b))||(f.includes(b)&&t.includes(a)));
+  let isLongDomestic = longPairs.some(([a, b]) => (f.includes(a) && t.includes(b)) || (f.includes(b) && t.includes(a)));
+  let isMedDomestic = medPairs.some(([a, b]) => (f.includes(a) && t.includes(b)) || (f.includes(b) && t.includes(a)));
 
   // Starting location-based offsets
   let locationMinOffset = 0;
@@ -375,7 +375,7 @@ function adjustFlightPrices(flights, from, to, targetDate) {
   flights.forEach(flight => {
     // Set seatsLeft if not present (between 2 and 45)
     if (!flight.seatsLeft) {
-      flight.seatsLeft = Math.floor(Math.random() * 44) + 2; 
+      flight.seatsLeft = Math.floor(Math.random() * 44) + 2;
     }
 
     // Calculate seat availability surge (fewer seats = higher price)
@@ -503,13 +503,13 @@ router.get('/', async (req, res) => {
         return match ? parseInt(match[1], 10) : 1;
       };
 
-      const byPrice = [...apiFlights].sort((a,b) => a.price - b.price);
-      const bySpeed = [...apiFlights].sort((a,b) => getDurMins(a.duration) - getDurMins(b.duration));
-      
+      const byPrice = [...apiFlights].sort((a, b) => a.price - b.price);
+      const bySpeed = [...apiFlights].sort((a, b) => getDurMins(a.duration) - getDurMins(b.duration));
+
       const cheapestPrice = byPrice[0]?.price;
       const hasDifferentPrices = apiFlights.some(f => f.price > cheapestPrice);
-      
-      const byBest = [...apiFlights].sort((a,b) => {
+
+      const byBest = [...apiFlights].sort((a, b) => {
         const scoreA = a.price + getDurMins(a.duration) * 15 + getStopsCount(a.stops) * 2500 + (hasDifferentPrices && a.price === cheapestPrice ? 10000 : 0);
         const scoreB = b.price + getDurMins(b.duration) * 15 + getStopsCount(b.stops) * 2500 + (hasDifferentPrices && b.price === cheapestPrice ? 10000 : 0);
         return scoreA - scoreB;
@@ -524,9 +524,9 @@ router.get('/', async (req, res) => {
           // cheapest = lowest price (may be slow/stop flight)
           cheapest: byPrice[0]?.price,
           // fastest = shortest duration flight's price (direct, premium — should be HIGHER)
-          fastest:  bySpeed[0]?.price,
+          fastest: bySpeed[0]?.price,
           // best = optimal price+speed balance (should sit between cheapest & fastest)
-          best:     byBest[0]?.price
+          best: byBest[0]?.price
         },
         source: 'skyscanner-live'
       });
@@ -555,13 +555,13 @@ router.get('/', async (req, res) => {
       return match ? parseInt(match[1], 10) : 1;
     };
 
-    const byPrice = [...mockFlights].sort((a,b) => a.price - b.price);
-    const bySpeed = [...mockFlights].sort((a,b) => getDurMins(a.duration) - getDurMins(b.duration));
-    
+    const byPrice = [...mockFlights].sort((a, b) => a.price - b.price);
+    const bySpeed = [...mockFlights].sort((a, b) => getDurMins(a.duration) - getDurMins(b.duration));
+
     const cheapestPrice = byPrice[0]?.price;
     const hasDifferentPrices = mockFlights.some(f => f.price > cheapestPrice);
-    
-    const byBest = [...mockFlights].sort((a,b) => {
+
+    const byBest = [...mockFlights].sort((a, b) => {
       const scoreA = a.price + getDurMins(a.duration) * 15 + getStopsCount(a.stops) * 2500 + (hasDifferentPrices && a.price === cheapestPrice ? 10000 : 0);
       const scoreB = b.price + getDurMins(b.duration) * 15 + getStopsCount(b.stops) * 2500 + (hasDifferentPrices && b.price === cheapestPrice ? 10000 : 0);
       return scoreA - scoreB;
@@ -576,9 +576,9 @@ router.get('/', async (req, res) => {
         // cheapest = lowest price (budget, slow or stops)
         cheapest: byPrice[0]?.price,
         // fastest = shortest duration flight's price (direct, premium — HIGHER than cheapest)
-        fastest:  bySpeed[0]?.price,
+        fastest: bySpeed[0]?.price,
         // best = optimal balance (between cheapest & fastest)
-        best:     byBest[0]?.price
+        best: byBest[0]?.price
       },
       source: 'market-proxy'
     });
@@ -657,8 +657,8 @@ router.post('/multi', async (req, res) => {
       const date = leg.date || new Date().toISOString().split('T')[0];
       const flights = buildMockFlights(from, to, 20, date);
       adjustFlightPrices(flights, from, to, date);
-      flights.sort((a,b) => a.price - b.price);
-      const formattedFlights = flights.map((f,idx) => ({...f, id: idx+1}));
+      flights.sort((a, b) => a.price - b.price);
+      const formattedFlights = flights.map((f, idx) => ({ ...f, id: idx + 1 }));
       return { leg: i + 1, from, to, date, flights: formattedFlights, source: 'market-proxy' };
     });
 
