@@ -145,6 +145,7 @@ export default function Hotels() {
     setLoading(true); setSearched(true)
     try {
       const res = await fetch(`/api/hotels?city=${encodeURIComponent(targetCity)}&checkin=${checkin}&checkout=${checkout}&guests=${guests}`)
+      if (!res.ok) throw new Error(`Server error ${res.status}`)
       const data = await res.json()
       if (data.success) {
         let updatedHotels = [...data.hotels]
@@ -161,8 +162,14 @@ export default function Hotels() {
           })
         }
         setHotels(updatedHotels)
+      } else {
+        console.warn('Hotels API returned success:false', data)
+        setHotels([])
       }
-    } catch { setHotels([]) }
+    } catch (err) {
+      console.error('Hotel search error:', err)
+      setHotels([])
+    }
     setLoading(false)
   }
 

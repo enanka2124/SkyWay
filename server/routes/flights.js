@@ -189,15 +189,23 @@ function getDateSurgeMultiplier(targetDate) {
   if (daysAhead <= 14) return 1.30 + Math.random() * 0.20; // 1–2 weeks: +30–50%
   if (daysAhead <= 21) return 1.15 + Math.random() * 0.15; // 3 weeks: +15–30%
 
-  // 🟢 GREEN — Advance booking: cheapest fares (0% to -15%)
+  // 🟢 GREEN — Advance booking: cheapest fares
   if (daysAhead <= 45) return 1.00 + Math.random() * 0.08; // 3–6 weeks: 0–8% above base
-  if (daysAhead <= 60) return 0.95 + Math.random() * 0.07; // 6–8 weeks: -5 to +2%
-  return 0.88 + Math.random() * 0.07;                       // 60+ days: -12 to -5% (early bird)
+  if (daysAhead <= 60) return 0.95 + Math.random() * 0.07; // 6–8 weeks
+  return 0.88 + Math.random() * 0.07;                       // 60+ days: early bird
 }
 
 /**
  * Dot color — perfectly aligned with surge tiers above.
  * Used by both the calendar UI and results display.
+ *
+ * Rules:
+ *  🔴 Red    0–2 days ahead  → last-minute surge, starts ₹7k+
+ *  🟡 Yellow 3–21 days ahead → medium price, starts ₹5–6k
+ *  🟢 Green  22+ days ahead  → cheapest, starts ₹4k (max ₹12k domestic)
+ *  🟢 Green  random scatter in 3–21 range → flash-deal days
+ *
+ * Past dates / today NEVER get a green dot — no flights on past dates.
  */
 function getDateDotColor(targetDate) {
   if (!targetDate) return 'green';
@@ -205,9 +213,26 @@ function getDateDotColor(targetDate) {
   const [y, m, d] = targetDate.split('-').map(Number);
   const travel = new Date(y, m - 1, d);
   const daysAhead = Math.floor((travel - today) / (1000 * 60 * 60 * 24));
-  if (daysAhead <= 2) return 'red';    // 🔴 0–2 days: last-minute surge (most expensive)
-  if (daysAhead <= 21) return 'yellow'; // 🟡 3–21 days: moderate/high price
-  return 'green';                        // 🟢 22+ days: advance booking (cheapest)
+
+  // Past or today → red (expensive / unavailable)
+  if (daysAhead <= 0) return 'red';
+  if (daysAhead <= 2) return 'red';    // 🔴 1–2 days: last-minute surge
+
+  // Yellow zone (3–21 days) — scatter random green "flash deal" dots
+  if (daysAhead <= 21) {
+    // Bit-mixing hash — thoroughly scrambles consecutive dates so dots appear
+    // visually random, NOT sequential (plain LCG on y*10000+mo*100+d produces
+    // almost identical outputs for adjacent days).
+    let h = (d * 374761393 + m * 1073741827 + y * 2654435761) | 0;
+    h = Math.imul(h ^ (h >>> 16), 0x45d9f3b);
+    h = Math.imul(h ^ (h >>> 16), 0x45d9f3b);
+    h = (h ^ (h >>> 16)) >>> 0;
+    const pseudo = h / 0xffffffff; // [0, 1)
+    if (pseudo < 0.35) return 'green'; // ~35% random green flash deals (starts from day 3)
+    return 'yellow'; // 🟡 standard yellow
+  }
+
+  return 'green'; // 🟢 22+ days: advance booking (cheapest)
 }
 
 function buildMockFlights(from, to, count = 12, targetDate = null) {
@@ -329,30 +354,48 @@ function adjustFlightPrices(flights, from, to, targetDate) {
   let isLongDomestic = longPairs.some(([a, b]) => (f.includes(a) && t.includes(b)) || (f.includes(b) && t.includes(a)));
   let isMedDomestic = medPairs.some(([a, b]) => (f.includes(a) && t.includes(b)) || (f.includes(b) && t.includes(a)));
 
-  // Starting location-based offsets
-  let locationMinOffset = 0;
+  // Location-based offsets — ONLY applied to the MAX (upper range widens for longer routes).
+  // The MIN (floor) stays at baseMin for all domestic routes so green dates always start from ₹4,000.
   let locationMaxOffset = 0;
 
   if (isLongDomestic) {
-    locationMinOffset = 3000;
     locationMaxOffset = 4000;
   } else if (isMedDomestic) {
-    locationMinOffset = 1500;
     locationMaxOffset = 2000;
   }
 
-  // 2. Determine base limits based on date dot color (+2k increase applied to all)
-  let baseMin = 4500; // Green dot starting price (increased to 4.5k)
-  let baseMax = 16000; // Green dot max price (increased to 16k)
+  // 2. Determine base limits based on date dot color.
+  // NOTE: baseMin is the hard floor — locationMaxOffset never touches it.
+  let baseMin = 3000; // 🟢 Green dot starting price: ₹3,000 (ALL locations)
+  let baseMax = 11000; // 🟢 Green dot max price: ₹11,000 domestic (wider for longer routes)
 
-  if (daysAhead <= 2) {
-    // Red dot: starts from 7k
+  if (daysAhead <= 0) {
+    // Red dot: today/past — starts from ₹7k
     baseMin = 7000;
     baseMax = 25000;
+  } else if (daysAhead <= 2) {
+    // Red dot: last-minute 1–2 days — starts from ₹7k
+    baseMin = 7000;
+    baseMax = 22000;
   } else if (daysAhead <= 21) {
-    // Yellow dot: starts from 5.5k
-    baseMin = 5500;
-    baseMax = 19000;
+    // Yellow zone (3–21 days) — use same bit-mixing hash as getDateDotColor
+    const dateY = Number(targetDate.split('-')[0]);
+    const dateM = Number(targetDate.split('-')[1]);
+    const dateD = Number(targetDate.split('-')[2]);
+    let h = (dateD * 374761393 + dateM * 1073741827 + dateY * 2654435761) | 0;
+    h = Math.imul(h ^ (h >>> 16), 0x45d9f3b);
+    h = Math.imul(h ^ (h >>> 16), 0x45d9f3b);
+    h = (h ^ (h >>> 16)) >>> 0;
+    const pseudo = h / 0xffffffff;
+    if (pseudo < 0.35) {
+      // Flash-deal green day: price same as advance green (₹3,000 floor)
+      baseMin = 3000;
+      baseMax = 11000;
+    } else {
+      // Standard yellow day: starts from ₹5,000
+      baseMin = 5000;
+      baseMax = 18000;
+    }
   }
 
   // 3. Adjust bounds for international flights vs domestic locations
@@ -360,15 +403,15 @@ function adjustFlightPrices(flights, from, to, targetDate) {
   let targetMaxPrice;
 
   if (longHaul.some(c => f.includes(c) || t.includes(c))) {
-    targetMinPrice = baseMin * 8.0; // 48k - 64k starting
-    targetMaxPrice = baseMax * 7.5; // 127k - 180k max
+    targetMinPrice = baseMin * 8.0;
+    targetMaxPrice = baseMax * 7.5;
   } else if (regional.some(c => f.includes(c) || t.includes(c))) {
-    targetMinPrice = baseMin * 3.0; // 18k - 24k starting
-    targetMaxPrice = baseMax * 2.8; // 47k - 67k max
+    targetMinPrice = baseMin * 3.0;
+    targetMaxPrice = baseMax * 2.8;
   } else {
-    // Domestic with location-based offsets
-    targetMinPrice = baseMin + locationMinOffset;
-    targetMaxPrice = baseMax + locationMaxOffset;
+    // Domestic — min is always baseMin (no location offset on floor!)
+    targetMinPrice = baseMin;
+    targetMaxPrice = baseMax + locationMaxOffset; // only max gets wider for longer routes
   }
 
   // 3. For each flight, generate a raw price score incorporating seat availability and peak hours
@@ -424,8 +467,24 @@ function adjustFlightPrices(flights, from, to, targetDate) {
     // Round to nearest 50 and make it end in 99 for Skyscanner style
     priceValue = Math.round(priceValue / 50) * 50 - 1;
 
-    // Safety checks
-    const safetyMin = Math.max(4000, targetMinPrice * 0.95);
+    // Safety checks — enforce hard minimums per dot color
+    let hardMin = 3000; // green dot hard floor: ₹3,000 (ALL locations)
+    if (daysAhead <= 2) hardMin = 7000;      // red dot floor ₹7k
+    else if (daysAhead <= 21) {
+      // Re-check if this is a flash-deal green day in the yellow zone
+      const dateY = Number(targetDate.split('-')[0]);
+      const dateM = Number(targetDate.split('-')[1]);
+      const dateD = Number(targetDate.split('-')[2]);
+      let hh = (dateD * 374761393 + dateM * 1073741827 + dateY * 2654435761) | 0;
+      hh = Math.imul(hh ^ (hh >>> 16), 0x45d9f3b);
+      hh = Math.imul(hh ^ (hh >>> 16), 0x45d9f3b);
+      hh = (hh ^ (hh >>> 16)) >>> 0;
+      hardMin = (hh / 0xffffffff) < 0.35 ? 3000 : 5000; // green flash=₹3k, yellow=₹5k
+    }
+    // Scale up hard minimums for international routes
+    if (longHaul.some(c => f.includes(c) || t.includes(c))) hardMin = hardMin * 8;
+    else if (regional.some(c => f.includes(c) || t.includes(c))) hardMin = hardMin * 3;
+    const safetyMin = Math.max(hardMin, targetMinPrice * 0.95);
     const safetyMax = targetMaxPrice * 1.05;
     flight.price = Math.max(Math.floor(safetyMin), Math.min(Math.floor(safetyMax), Math.floor(priceValue)));
   });
@@ -515,18 +574,46 @@ router.get('/', async (req, res) => {
         return scoreA - scoreB;
       });
 
+      // --- Date-distance discount for ALL filter tabs ---
+      // More days ahead = lower prices (green < yellow < red)
+      // Factor is applied to cheapest, fastest, and best prices shown in the filter tabs.
+      const [fty, ftm, ftd] = targetDate.split('-').map(Number);
+      const ftTravel = new Date(fty, ftm - 1, ftd);
+      const ftToday = new Date(); ftToday.setHours(0, 0, 0, 0);
+      const ftDaysAhead = Math.floor((ftTravel - ftToday) / (1000 * 60 * 60 * 24));
+
+      // Discount factor: further date = bigger discount (prices decrease)
+      let filterFactor;
+      if (ftDaysAhead >= 60)      filterFactor = 0.72; // 🟢 60+ days: -28%
+      else if (ftDaysAhead >= 45) filterFactor = 0.78; // 🟢 45-60 days: -22%
+      else if (ftDaysAhead >= 22) filterFactor = 0.84; // 🟢 22-45 days: -16%
+      else if (ftDaysAhead >= 14) filterFactor = 0.89; // 🟡 2 weeks: -11%
+      else if (ftDaysAhead >= 7)  filterFactor = 0.93; // 🟡 1 week: -7%
+      else if (ftDaysAhead >= 3)  filterFactor = 0.97; // 🟡 3-6 days: -3%
+      else                        filterFactor = 1.00; // 🔴 0-2 days: no discount (full surge price)
+
+      const applyFF = p => p != null ? Math.round(p * filterFactor) : p;
+
+      // Apply the date-distance discount to the actual price of the fastest flights
+      // so flight cards shown under "Fastest" filter reflect cheaper prices for further dates
+      const fastestDurMins = getDurMins(bySpeed[0]?.duration);
+      apiFlights.forEach(flight => {
+        const durMins = getDurMins(flight.duration);
+        // Apply discount to flights within 20 mins of the shortest duration (the "fastest" group)
+        if (durMins <= fastestDurMins + 20) {
+          flight.price = applyFF(flight.price);
+        }
+      });
+
       return res.json({
         success: true,
         count: apiFlights.length,
         from, to, date: targetDate,
         flights: apiFlights,
         filterPrices: {
-          // cheapest = lowest price (may be slow/stop flight)
-          cheapest: byPrice[0]?.price,
-          // fastest = shortest duration flight's price (direct, premium — should be HIGHER)
-          fastest: bySpeed[0]?.price,
-          // best = optimal price+speed balance (should sit between cheapest & fastest)
-          best: byBest[0]?.price
+          cheapest: applyFF(byPrice[0]?.price),
+          fastest:  applyFF(bySpeed[0]?.price),
+          best:     applyFF(byBest[0]?.price)
         },
         source: 'skyscanner-live'
       });
@@ -567,18 +654,45 @@ router.get('/', async (req, res) => {
       return scoreA - scoreB;
     });
 
+    // --- Date-distance discount for ALL filter tabs ---
+    // More days ahead = lower prices (green < yellow < red)
+    const [mty, mtm, mtd] = targetDate.split('-').map(Number);
+    const mtTravel = new Date(mty, mtm - 1, mtd);
+    const mtToday = new Date(); mtToday.setHours(0, 0, 0, 0);
+    const mtDaysAhead = Math.floor((mtTravel - mtToday) / (1000 * 60 * 60 * 24));
+
+    // Discount factor: further date = bigger discount (prices decrease)
+    let filterFactor;
+    if (mtDaysAhead >= 60)      filterFactor = 0.72; // 🟢 60+ days: -28%
+    else if (mtDaysAhead >= 45) filterFactor = 0.78; // 🟢 45-60 days: -22%
+    else if (mtDaysAhead >= 22) filterFactor = 0.84; // 🟢 22-45 days: -16%
+    else if (mtDaysAhead >= 14) filterFactor = 0.89; // 🟡 2 weeks: -11%
+    else if (mtDaysAhead >= 7)  filterFactor = 0.93; // 🟡 1 week: -7%
+    else if (mtDaysAhead >= 3)  filterFactor = 0.97; // 🟡 3-6 days: -3%
+    else                        filterFactor = 1.00; // 🔴 0-2 days: no discount (full surge price)
+
+    const applyFF = p => p != null ? Math.round(p * filterFactor) : p;
+
+    // Apply the date-distance discount to the actual price of the fastest flights
+    // so flight cards shown under "Fastest" filter reflect cheaper prices for further dates
+    const fastestDurMins = getDurMins(bySpeed[0]?.duration);
+    mockFlights.forEach(flight => {
+      const durMins = getDurMins(flight.duration);
+      // Apply discount to flights within 20 mins of the shortest duration (the "fastest" group)
+      if (durMins <= fastestDurMins + 20) {
+        flight.price = applyFF(flight.price);
+      }
+    });
+
     return res.json({
       success: true,
       count: mockFlights.length,
       from, to, date: targetDate,
       flights: mockFlights,
       filterPrices: {
-        // cheapest = lowest price (budget, slow or stops)
-        cheapest: byPrice[0]?.price,
-        // fastest = shortest duration flight's price (direct, premium — HIGHER than cheapest)
-        fastest: bySpeed[0]?.price,
-        // best = optimal balance (between cheapest & fastest)
-        best: byBest[0]?.price
+        cheapest: applyFF(byPrice[0]?.price),
+        fastest:  applyFF(bySpeed[0]?.price),
+        best:     applyFF(byBest[0]?.price)
       },
       source: 'market-proxy'
     });

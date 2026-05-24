@@ -164,7 +164,9 @@ export default function Checkout() {
                     from: item.from || item.title?.split('→')[0]?.trim() || item.city,
                     to: item.to || item.title?.split('→')[1]?.trim() || '',
                     airline: item.airline || item.name || 'SkyWay',
+                    type,
                   }}
+                  passengerInfo={{ firstName, lastName, email, phone }}
                   onSuccess={handlePaymentSuccess}
                   onClose={() => setShowPayment(false)}
                 />

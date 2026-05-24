@@ -94,31 +94,39 @@ export default function SearchCard({ onSearch, initialFrom, initialTo, initialDa
   /**
    * REAL MARKET demand color — perfectly synced with backend surge multiplier.
    *
-   *  🔴 Red    0–2 days   → last-minute surge (+150–250%) — MOST EXPENSIVE
-   *  🟡 Yellow 3–21 days  → rising demand (+15–130%)      — MEDIUM PRICE
-   *  🟢 Green  22+ days   → advance booking (0 to -12%)    — CHEAPEST
+   *  🔴 Red    today & 1–2 days  → last-minute surge, prices from ₹7k+
+   *  🟡 Yellow 3–21 days ahead   → medium demand, prices from ₹5k
+   *  🟢 Green  3–21 days (~35%)  → random flash-deal, prices from ₹4,000
+   *  🟢 Green  22+ days always   → advance booking, prices from ₹4,000
    *
-   * Special rule: random green dots can appear scattered inside the yellow zone
-   * (at least 2 days after present / after the red zone ends), simulating
-   * flash sale / off-peak windows airlines occasionally offer mid-advance.
+   * Green dots NEVER appear on today or past dates.
+   * Random green/yellow uses a bit-mixing hash so dots look truly random
+   * (not sequential — plain LCG on y*10000+mo*100+d gives almost identical
+   * outputs for adjacent days, creating a visible pattern).
    */
   const getDemandColorForDate = (dateStr) => {
     if (!dateStr) return '#22c55e'
     const today = new Date(); today.setHours(0, 0, 0, 0)
-    // Parse as LOCAL date to avoid UTC/IST timezone shift
     const [y, mo, d] = dateStr.split('-').map(Number)
-    const travel = new Date(y, mo - 1, d)  // local midnight
+    const travel = new Date(y, mo - 1, d)
     const daysAhead = Math.floor((travel - today) / (1000 * 60 * 60 * 24))
-    if (daysAhead <= 2)  return '#ef4444' // 🔴 0–2 days: last-minute surge
-    if (daysAhead >= 22) return '#22c55e' // 🟢 22+ days: advance booking, cheapest
 
-    // 🟡 Yellow zone (3–21 days): scatter random green "flash deal" dots.
-    // Use a deterministic seed from the date so the color is stable on re-renders.
-    const seed = y * 10000 + mo * 100 + d
-    const pseudo = ((seed * 1664525 + 1013904223) & 0x7fffffff) / 0x7fffffff // LCG [0,1)
-    // ~25% of yellow-zone days show as green (random flash deals)
-    if (pseudo < 0.25) return '#22c55e'  // 🟢 random flash-deal green inside yellow zone
-    return '#eab308'                     // 🟡 standard yellow
+    // Past or today → always red
+    if (daysAhead <= 0) return '#ef4444'  // 🔴
+    if (daysAhead <= 2) return '#ef4444'  // 🔴 last-minute, starts ₹7k
+
+    // 22+ days → always green (advance booking, from ₹4,000)
+    if (daysAhead >= 22) return '#22c55e' // 🟢
+
+    // 3–21 days: bit-mixing hash → visually random green/yellow scatter
+    // Same algorithm as backend getDateDotColor for consistency.
+    let h = (d * 374761393 + mo * 1073741827 + y * 2654435761) | 0
+    h = Math.imul(h ^ (h >>> 16), 0x45d9f3b)
+    h = Math.imul(h ^ (h >>> 16), 0x45d9f3b)
+    h = (h ^ (h >>> 16)) >>> 0
+    const pseudo = h / 0xffffffff
+    if (pseudo < 0.35) return '#22c55e'  // 🟢 ~35% flash-deal green (starts from day 3)
+    return '#eab308'                     // 🟡 standard yellow, starts ₹5k
   }
 
   // Handle clicks outside of custom calendars to close them
