@@ -116,7 +116,8 @@ export default function Checkout() {
     trips.push(tripEntry)
     localStorage.setItem(tripsKey, JSON.stringify(trips))
 
-    // Also try server booking
+    // Also try server booking — use the registered account email so it appears in My Trips
+    const accountEmail = user?.email || email
     try {
       await fetch('/api/bookings', {
         method: 'POST', 
@@ -128,13 +129,15 @@ export default function Checkout() {
           pricing,
           firstName, 
           lastName, 
-          email, 
+          // userEmail is the account owner email; passenger email is the traveller contact
+          email: accountEmail,
           phone, 
           passport, 
           nationality 
         }),
       })
     } catch { /* already saved locally */ }
+
 
     setConfirmed(true)
   }

@@ -81,6 +81,7 @@ const getTripImage = (trip) => {
 export default function MyTrips() {
   const { user, loading } = useAuth()
   const [trips, setTrips] = useState([])
+  const [tripsLoading, setTripsLoading] = useState(true)
   const [filter, setFilter] = useState('all')
   const [cancellingId, setCancellingId] = useState(null)
   const [cancelConfirm, setCancelConfirm] = useState(null) // trip index to confirm cancel
@@ -88,14 +89,112 @@ export default function MyTrips() {
 
   const tripsKey = `skyway_trips_${user?._id || 'guest'}`
 
+  // Transform a server booking document into the client trip format
+  const serverBookingToTrip = (b) => ({
+    ticketId: b.ticketId,
+    type: b.bookingType || 'flight',
+    flight: b.flight ? {
+      airline: b.flight.airline,
+      code: b.flight.code,
+      from: b.flight.from,
+      to: b.flight.to,
+      dep: b.flight.dep,
+      arr: b.flight.arr,
+      duration: b.flight.duration,
+      stops: b.flight.stops,
+    } : undefined,
+    hotel: b.hotel ? {
+      name: b.hotel.name,
+      city: b.hotel.city,
+      stars: b.hotel.stars,
+      price: b.hotel.price,
+    } : undefined,
+    pricing: {
+      base: b.pricing?.baseFare,
+      taxes: b.pricing?.taxes,
+      fee: b.pricing?.convenienceFee,
+      discount: b.pricing?.discount,
+      total: b.pricing?.total,
+    },
+    passenger: b.passenger,
+    status: b.paymentStatus === 'cancelled' ? 'cancelled' : 'confirmed',
+    cancelledAt: b.cancelledAt || null,
+    bookedAt: b.bookedAt,
+    _source: 'server',
+  })
+
   useEffect(() => {
     if (!user) return;
-    const stored = JSON.parse(localStorage.getItem(tripsKey) || '[]')
-    setTrips(stored)
+
+    const loadTrips = async () => {
+      setTripsLoading(true)
+      try {
+        // 1. Load from localStorage
+        const localTrips = JSON.parse(localStorage.getItem(tripsKey) || '[]')
+
+        // 2. Fetch from server by user email
+        let serverTrips = []
+        try {
+          const res = await fetch(`/api/bookings?email=${encodeURIComponent(user.email)}`)
+          const data = await res.json()
+          if (data.success && Array.isArray(data.bookings)) {
+            serverTrips = data.bookings.map(serverBookingToTrip)
+          }
+        } catch (err) {
+          console.warn('[MyTrips] Server fetch failed, using localStorage only:', err.message)
+        }
+
+        // 3. Merge: prefer server data, add localStorage-only entries not in server
+        const serverIds = new Set(serverTrips.map(t => t.ticketId))
+        const localOnlyTrips = localTrips.filter(t => !serverIds.has(t.ticketId))
+
+        // Also sync cancellations from localStorage back to the merged list
+        const cancelledLocalIds = new Set(
+          localTrips.filter(t => t.status === 'cancelled').map(t => t.ticketId)
+        )
+        const merged = [
+          ...serverTrips.map(t => ({
+            ...t,
+            // If local says cancelled but server doesn't yet reflect it, honour local
+            status: cancelledLocalIds.has(t.ticketId) ? 'cancelled' : t.status,
+            cancelledAt: cancelledLocalIds.has(t.ticketId)
+              ? (localTrips.find(l => l.ticketId === t.ticketId)?.cancelledAt || t.cancelledAt)
+              : t.cancelledAt,
+          })),
+          ...localOnlyTrips,
+        ]
+
+        // Sort newest first
+        merged.sort((a, b) => new Date(b.bookedAt) - new Date(a.bookedAt))
+
+        setTrips(merged)
+
+        // Update localStorage to reflect merged state (so it stays in sync)
+        localStorage.setItem(tripsKey, JSON.stringify(merged))
+      } catch (err) {
+        console.error('[MyTrips] Failed to load trips:', err)
+        const localTrips = JSON.parse(localStorage.getItem(tripsKey) || '[]')
+        setTrips(localTrips)
+      } finally {
+        setTripsLoading(false)
+      }
+    }
+
+    loadTrips()
   }, [user, tripsKey])
 
   if (loading) return null;
   if (!user) return <Navigate to="/signin" replace />;
+  if (tripsLoading) return (
+    <>
+      <Navbar />
+      <div style={{ minHeight: '70vh', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '1rem' }}>
+        <div style={{ width: 48, height: 48, border: '3px solid rgba(255,193,7,0.2)', borderTop: '3px solid #ffc107', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+        <p style={{ color: 'var(--color-text-muted)', fontSize: '0.95rem' }}>Loading your trips...</p>
+      </div>
+      <Footer />
+    </>
+  );
 
   const clearTrips = () => {
     if (confirm('Clear all trip history?')) {
@@ -108,19 +207,28 @@ export default function MyTrips() {
     setCancelConfirm(index)
   }
 
-  const confirmCancel = () => {
+  const confirmCancel = async () => {
     if (cancelConfirm === null) return
     setCancellingId(cancelConfirm)
 
-    // Simulate cancellation processing
-    setTimeout(() => {
-      const updated = [...trips]
-      updated[cancelConfirm] = { ...updated[cancelConfirm], status: 'cancelled', cancelledAt: new Date().toISOString() }
-      setTrips(updated)
-      localStorage.setItem(tripsKey, JSON.stringify(updated))
-      setCancellingId(null)
-      setCancelConfirm(null)
-    }, 1200)
+    const trip = trips[cancelConfirm]
+    const cancelledAt = new Date().toISOString()
+
+    // Persist cancellation to server DB
+    try {
+      if (trip.ticketId) {
+        await fetch(`/api/bookings/${trip.ticketId}/cancel`, { method: 'PATCH' })
+      }
+    } catch (err) {
+      console.warn('[MyTrips] Server cancel failed, updating locally only:', err.message)
+    }
+
+    const updated = [...trips]
+    updated[cancelConfirm] = { ...updated[cancelConfirm], status: 'cancelled', cancelledAt }
+    setTrips(updated)
+    localStorage.setItem(tripsKey, JSON.stringify(updated))
+    setCancellingId(null)
+    setCancelConfirm(null)
   }
 
   const filtered = filter === 'all' ? trips : trips.filter(t => t.type === filter)

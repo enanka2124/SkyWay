@@ -110,4 +110,34 @@ router.get('/', async (req, res) => {
   }
 });
 
+// PATCH /api/bookings/:ticketId/cancel — Cancel a booking
+router.patch('/:ticketId/cancel', async (req, res) => {
+  try {
+    const booking = await Booking.findOne({ ticketId: req.params.ticketId });
+    if (!booking) {
+      return res.status(404).json({ success: false, error: 'Booking not found' });
+    }
+    booking.paymentStatus = 'cancelled';
+    booking.cancelledAt = new Date();
+    await booking.save();
+    res.json({ success: true, booking });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Failed to cancel booking' });
+  }
+});
+
+// DELETE /api/bookings/:ticketId — Hard delete a booking
+router.delete('/:ticketId', async (req, res) => {
+  try {
+    const result = await Booking.findOneAndDelete({ ticketId: req.params.ticketId });
+    if (!result) {
+      return res.status(404).json({ success: false, error: 'Booking not found' });
+    }
+    res.json({ success: true, message: 'Booking deleted' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Failed to delete booking' });
+  }
+});
+
 module.exports = router;
+

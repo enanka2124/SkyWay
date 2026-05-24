@@ -123,6 +123,11 @@ body {
   0%, 100% { transform: translateY(0); }
   50%       { transform: translateY(-6px); }
 }
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
 
 .anim-1 { animation: fadeInUp 0.55s cubic-bezier(.22,.68,0,1.2) 0.05s both; }
 .anim-2 { animation: fadeInUp 0.55s cubic-bezier(.22,.68,0,1.2) 0.15s both; }

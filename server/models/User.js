@@ -64,19 +64,12 @@ UserSchema.methods.matchPassword = async function (enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);
 };
 
-// Cascade delete bookings and associated files when a User is deleted
+// When a soft-deleted user doc is hard-deleted during re-registration cleanup,
+// only remove the Aadhaar file — bookings are intentionally PRESERVED so the user
+// can see their full trip history after re-registering with the same email.
 UserSchema.post('findOneAndDelete', async function (doc) {
   if (doc) {
-    // 1. Delete all bookings associated with this user
-    try {
-      const Booking = mongoose.model('Booking');
-      await Booking.deleteMany({ userEmail: doc.email });
-      console.log(`[CLEANUP] Deleted all bookings for user: ${doc.email}`);
-    } catch (err) {
-      console.error(`[CLEANUP ERROR] Failed to delete bookings: ${err.message}`);
-    }
-
-    // 2. Delete the Aadhaar PDF file from the uploads directory
+    // Delete the Aadhaar PDF file from the uploads directory (free storage)
     if (doc.aadhaarFile) {
       const filePath = path.join(__dirname, '..', 'uploads', doc.aadhaarFile);
       if (fs.existsSync(filePath)) {
@@ -88,8 +81,12 @@ UserSchema.post('findOneAndDelete', async function (doc) {
         }
       }
     }
+    // NOTE: Bookings are intentionally NOT deleted here.
+    // When a user re-registers with the same email, their booking history
+    // (stored by userEmail) will still be visible in My Trips.
   }
 });
+
 
 const User = mongoose.model('User', UserSchema);
 
