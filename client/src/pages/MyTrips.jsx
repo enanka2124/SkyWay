@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Link, Navigate } from 'react-router-dom'
+import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
@@ -80,12 +80,12 @@ const getTripImage = (trip) => {
 
 export default function MyTrips() {
   const { user, loading } = useAuth()
+  const navigate = useNavigate()
   const [trips, setTrips] = useState([])
   const [tripsLoading, setTripsLoading] = useState(true)
   const [filter, setFilter] = useState('all')
   const [cancellingId, setCancellingId] = useState(null)
   const [cancelConfirm, setCancelConfirm] = useState(null) // trip index to confirm cancel
-  const [viewDetails, setViewDetails] = useState(null) // trip object for details modal
 
   const tripsKey = `skyway_trips_${user?._id || 'guest'}`
 
@@ -237,6 +237,9 @@ export default function MyTrips() {
     if (trip.status === 'cancelled') {
       return <span className="text-xs px-2.5 py-1 rounded-lg font-medium" style={{ background: 'rgba(239,68,68,0.12)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.2)' }}>Cancelled</span>
     }
+    if (trip.paymentStatus === 'failed') {
+      return <span className="text-xs px-2.5 py-1 rounded-lg font-medium" style={{ background: 'rgba(255,70,70,0.12)', color: '#ff4646', border: '1px solid rgba(255,70,70,0.2)' }}>Payment Failed ✕</span>
+    }
     return <span className="text-xs px-2.5 py-1 rounded-lg font-medium" style={{ background: 'rgba(34,208,122,0.12)', color: '#22d07a', border: '1px solid rgba(34,208,122,0.2)' }}>Confirmed</span>
   }
 
@@ -354,18 +357,18 @@ export default function MyTrips() {
                       
                       <div className="flex items-center gap-3">
                         <button 
-                          className="text-xs px-5 py-2.5 rounded-lg cursor-pointer font-medium transition-all hover:bg-white/5"
+                          className="text-xs px-5 py-2.5 rounded-lg cursor-pointer font-medium transition-all"
                           style={{
-                            background: 'rgba(255,255,255,0.03)',
-                            border: '1px solid rgba(255,255,255,0.1)',
-                            color: 'white',
+                            background: 'linear-gradient(135deg, rgba(245,166,35,0.12), rgba(245,166,35,0.06))',
+                            border: '1px solid rgba(245,166,35,0.3)',
+                            color: 'var(--color-accent)',
                           }}
-                          onClick={() => setViewDetails(trip)}
+                          onClick={() => navigate(`/my-trips/${trip.ticketId}`, { state: trip })}
                         >
-                          View Details
+                          View Details →
                         </button>
 
-                        {!isCancelled && (
+                        {!isCancelled && trip.paymentStatus !== 'failed' && (
                           <button
                             onClick={(e) => { e.stopPropagation(); handleCancelTrip(i) }}
                             className="text-xs px-5 py-2.5 rounded-lg cursor-pointer font-medium transition-all hover:bg-red-500/20"
@@ -460,149 +463,7 @@ export default function MyTrips() {
         </div>
       )}
 
-      {/*  */}
-      {viewDetails && (
-        <div className="modal-overlay" style={{ zIndex: 100 }} onClick={e => { if (e.target === e.currentTarget) setViewDetails(null) }}>
-          <div className="modal-box p-0 flex flex-col max-h-[90vh]" style={{ maxWidth: 550, padding: 0 }}>
-            
-            <div className="p-6 border-b border-white/8 flex justify-between items-center">
-              <h3 className="font-syne text-2xl font-bold text-accent">Booking Details</h3>
-              <button onClick={() => setViewDetails(null)} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 text-text-muted transition-colors">
-                ✕
-              </button>
-            </div>
-            
-            <div className="p-6 overflow-y-auto">
-              {/* Header Stats */}
-              <div className="flex items-center justify-between mb-6">
-                <div>
-                  <div className="text-xs text-text-muted tracking-wider uppercase mb-1">Booking ID</div>
-                  <div className="font-syne font-bold text-lg">{viewDetails.ticketId || viewDetails.bookingId || '--'}</div>
-                </div>
-                <div className="text-right">
-                  <div className="text-xs text-text-muted tracking-wider uppercase mb-1">Status</div>
-                  {getStatusBadge(viewDetails)}
-                </div>
-              </div>
 
-              {/* Primary Info */}
-              <div className="rounded-xl p-5 mb-6" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                {viewDetails.type === 'flight' || viewDetails.type === 'deal' ? (
-                  <>
-                    <div className="flex items-center gap-3 mb-4 text-accent font-bold"><span className="text-xl">✈</span> Flight</div>
-                    <div className="flex gap-4 items-start mb-4">
-                      {(() => {
-                        const img = getTripImage(viewDetails);
-                        if (!img) return null;
-                        return <div className="rounded-xl bg-cover bg-center shrink-0 overflow-hidden" style={{ width: 80, height: 60, backgroundImage: `url('${img}')` }}></div>;
-                      })()}
-                      <div className="flex-1">
-                        <div className="font-syne text-xl font-bold mb-1">
-                          {viewDetails.flight?.title ? viewDetails.flight.title : `${viewDetails.flight?.from} → ${viewDetails.flight?.to}`}
-                        </div>
-                        <div className="text-sm text-text-muted">
-                          {viewDetails.flight?.description ? viewDetails.flight.description : `${viewDetails.flight?.airline} · Outbound · ${viewDetails.flight?.dep} - ${viewDetails.flight?.arr}`}
-                        </div>
-                      </div>
-                    </div>
-                    {viewDetails.flight?.tripType === 'round' && viewDetails.flight?.returnDate && (
-                      <div className="flex gap-4 items-start mb-4 pt-4 border-t border-white/8">
-                         <div className="flex-1 text-right">
-                           <div className="font-syne text-xl font-bold mb-1">
-                             {viewDetails.flight?.to} → {viewDetails.flight?.from}
-                           </div>
-                           <div className="text-sm text-text-muted">
-                             {viewDetails.flight?.airline} · Return Flight · {viewDetails.flight?.arr} - {viewDetails.flight?.dep}
-                           </div>
-                         </div>
-                      </div>
-                    )}
-                    <div className="flex justify-between border-t border-white/8 pt-4 mt-2">
-                      <div>
-                        <div className="text-xs text-text-muted tracking-wider uppercase mb-1">{viewDetails.flight?.tripType === 'round' ? 'Departure Date' : 'Date'}</div>
-                        <div className="font-medium text-sm text-accent">
-                          {new Date(viewDetails.flight?.searchedDate || viewDetails.bookedAt).toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}
-                        </div>
-                      </div>
-                      {viewDetails.flight?.tripType === 'round' && viewDetails.flight?.returnDate && (
-                        <div className="text-right">
-                          <div className="text-xs text-text-muted tracking-wider uppercase mb-1">Return Date</div>
-                          <div className="font-medium text-sm text-accent">
-                            {new Date(viewDetails.flight.returnDate).toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="flex items-center gap-3 mb-4 text-accent font-bold"><span className="text-xl">🏨</span> Hotel Stay</div>
-                    <div className="flex gap-4 items-start">
-                      {viewDetails.hotel?.image && (
-                        <div className="rounded-xl bg-cover bg-center shrink-0 overflow-hidden" style={{ width: 80, height: 60, backgroundImage: `url('${viewDetails.hotel.image}')` }}></div>
-                      )}
-                      <div>
-                        <div className="font-syne text-xl font-bold mb-1">{viewDetails.hotel?.name}</div>
-                        <div className="text-sm text-text-muted mb-4">📍 {viewDetails.hotel?.city}</div>
-                      </div>
-                    </div>
-                    
-                    <div className="flex justify-between gap-4 border-t border-white/8 pt-4 mt-2">
-                      <div>
-                        <div className="text-xs text-text-muted tracking-wider uppercase mb-1">Check-in</div>
-                        <div className="font-medium text-sm text-accent">
-                          {(viewDetails.checkin || viewDetails.searchInfo?.checkin) ? `${new Date(viewDetails.checkin || viewDetails.searchInfo.checkin).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })} (2:00 PM)` : '--'}
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-xs text-text-muted tracking-wider uppercase mb-1">Check-out</div>
-                        <div className="font-medium text-sm text-accent">
-                          {(viewDetails.checkout || viewDetails.searchInfo?.checkout) ? `${new Date(viewDetails.checkout || viewDetails.searchInfo.checkout).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })} (11:00 AM)` : '--'}
-                        </div>
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-
-              {/* Pricing Info */}
-              <div>
-                <h4 className="text-sm font-bold mb-3 text-accent">Payment Summary</h4>
-                <div className="space-y-2 text-sm text-text-muted mb-4">
-                  <div className="flex justify-between">
-                    <span>Base Fare</span>
-                    <span>₹{(viewDetails.pricing?.base || Math.round((viewDetails.pricing?.total || viewDetails.totalPrice || 0) * 0.85)).toLocaleString('en-IN')}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Taxes & Fees</span>
-                    <span>₹{((viewDetails.pricing?.taxes || 0) + (viewDetails.pricing?.fee || 0) || Math.round((viewDetails.pricing?.total || viewDetails.totalPrice || 0) * 0.15)).toLocaleString('en-IN')}</span>
-                  </div>
-                  {viewDetails.pricing?.discount > 0 && (
-                    <div className="flex justify-between text-green-400">
-                      <span>Discount</span>
-                      <span>-₹{viewDetails.pricing?.discount?.toLocaleString('en-IN')}</span>
-                    </div>
-                  )}
-                  <div className="flex justify-between pt-2 mt-2" style={{ borderTop: '1px dashed rgba(255,255,255,0.1)' }}>
-                    <span>Payment Method</span>
-                    <span className="font-medium">{viewDetails.paymentMethod === 'upi' ? 'UPI' : 'Credit/Debit Card'}</span>
-                  </div>
-                </div>
-                <div className="flex justify-between border-t border-white/8 pt-3 font-bold text-lg text-white">
-                  <span>Total Paid</span>
-                  <span className="text-accent">₹{viewDetails.pricing?.total?.toLocaleString('en-IN') || viewDetails.totalPrice?.toLocaleString('en-IN')}</span>
-                </div>
-              </div>
-
-            </div>
-            
-            <div className="p-5 border-t border-white/8 bg-black/20 text-center">
-              <button onClick={() => setViewDetails(null)} className="btn-ghost w-full py-3 text-sm">Close Details</button>
-            </div>
-            
-          </div>
-        </div>
-      )}
 
       <Footer />
     </>

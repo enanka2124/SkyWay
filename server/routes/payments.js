@@ -3,12 +3,25 @@ const router = express.Router();
 const nodemailer = require('nodemailer');
 const axios = require('axios');
 
-// ── In-memory OTP store (expires in 10 minutes) ───────────────────────────────
+// ════════════════════════════════════════════════════════════════════════════
+// IN-MEMORY STORES
+// ════════════════════════════════════════════════════════════════════════════
+
+// OTP sessions — keyed by sessionId
 const otpStore = new Map();
+
+// Device-based throttle — one active OTP per deviceId
+// deviceStore: deviceId → { sessionId, expiresAt }
+const deviceStore = new Map();
+
+// Auto-cleanup every 5 min
 setInterval(() => {
   const now = Date.now();
   for (const [key, val] of otpStore.entries()) {
     if (val.expiresAt < now) otpStore.delete(key);
+  }
+  for (const [key, val] of deviceStore.entries()) {
+    if (val.expiresAt < now) deviceStore.delete(key);
   }
 }, 5 * 60 * 1000);
 
@@ -23,46 +36,88 @@ function generateOtp() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// NOTIFICATION CHANNELS
+// UPI BANK RESOLUTION
+// Maps UPI handle suffixes to bank names, used for realistic display
+// ════════════════════════════════════════════════════════════════════════════
+const upiHandleBankMap = {
+  'okaxis':    { bank: 'Axis Bank',       icon: '🏦', color: '#8B1A1A' },
+  'okhdfcbank':{ bank: 'HDFC Bank',       icon: '🏦', color: '#004C8F' },
+  'okicici':   { bank: 'ICICI Bank',      icon: '🏦', color: '#F37F20' },
+  'oksbi':     { bank: 'State Bank of India', icon: '🏦', color: '#22409A' },
+  'ybl':       { bank: 'Yes Bank / PhonePe', icon: '📱', color: '#5f259f' },
+  'ibl':       { bank: 'IDFC First Bank', icon: '🏦', color: '#0033A0' },
+  'axl':       { bank: 'Axis Bank (Lite)', icon: '🏦', color: '#8B1A1A' },
+  'paytm':     { bank: 'Paytm Payments Bank', icon: '💙', color: '#00B9F1' },
+  'upi':       { bank: 'BHIM UPI',        icon: '🇮🇳', color: '#138808' },
+  'icici':     { bank: 'ICICI Bank',      icon: '🏦', color: '#F37F20' },
+  'sbi':       { bank: 'State Bank of India', icon: '🏦', color: '#22409A' },
+  'hdfc':      { bank: 'HDFC Bank',       icon: '🏦', color: '#004C8F' },
+  'kotak':     { bank: 'Kotak Mahindra Bank', icon: '🏦', color: '#EE3124' },
+  'bob':       { bank: 'Bank of Baroda',  icon: '🏦', color: '#FF6600' },
+  'pnb':       { bank: 'Punjab National Bank', icon: '🏦', color: '#1A237E' },
+  'idfcbank':  { bank: 'IDFC FIRST Bank', icon: '🏦', color: '#0033A0' },
+  'airtel':    { bank: 'Airtel Payments Bank', icon: '📡', color: '#E40000' },
+  'fbl':       { bank: 'Federal Bank',    icon: '🏦', color: '#005BAC' },
+};
+
+function resolveUpiBank(upiId) {
+  if (!upiId || typeof upiId !== 'string') return null;
+  const handle = upiId.split('@')[1]?.toLowerCase();
+  if (!handle) return null;
+  // Exact match first
+  if (upiHandleBankMap[handle]) return upiHandleBankMap[handle];
+  // Partial match
+  for (const [key, info] of Object.entries(upiHandleBankMap)) {
+    if (handle.includes(key) || key.includes(handle)) return info;
+  }
+  return { bank: 'Your Bank', icon: '🏦', color: '#6b7280' };
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// BALANCE SIMULATION ENGINE
+// Simulates a bank balance check. In a real system this would call bank APIs.
 //
-// Priority order:
-//   1. Email (nodemailer / Gmail SMTP) — UNLIMITED FREE, always works ✅
-//   2. Fast2SMS                        — Use if FAST2SMS_API_KEY is set
-//   3. Textbelt free                   — Best-effort 1 free SMS/day/IP
-//   4. Gmail email-to-SMS gateways     — Covers Airtel/Jio/Vi numbers (best effort)
+// Logic:
+//  - Amounts ≤ ₹1,50,000 → always sufficient (covers 99% of bookings)
+//  - UPI IDs ending in "fail" or "broke" → always insufficient (for testing)
+//  - Very large amounts (> ₹5,00,000) → insufficient (rare edge case)
+// ════════════════════════════════════════════════════════════════════════════
+function simulateBalanceCheck(amount, method, upiId, cardLast4) {
+  const amt = Number(amount || 0);
+
+  // Test override: UPI IDs that intentionally fail
+  if (upiId) {
+    const user = upiId.split('@')[0].toLowerCase();
+    if (user === 'fail' || user === 'broke' || user.endsWith('fail') || user === 'test_fail') {
+      return { sufficient: false, reason: 'insufficient_funds', balance: Math.round(amt * 0.3) };
+    }
+  }
+
+  // Very high amount → simulate insufficient (> ₹5L)
+  if (amt > 500000) {
+    return { sufficient: false, reason: 'daily_limit_exceeded', balance: 500000 };
+  }
+
+  // Normal amounts → always sufficient for demo
+  return { sufficient: true, balance: Math.round(amt * (1.5 + Math.random() * 2)) };
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// NOTIFICATION CHANNELS
 // ════════════════════════════════════════════════════════════════════════════
 
-/**
- * Attempt to resolve an Indian mobile number to its carrier's email-to-SMS gateway.
- * Carriers in India don't officially publish these, but some routes work.
- * Returns an array of gateway email addresses to try (best effort).
- */
 function getCarrierGatewayEmails(phone) {
   const num = String(phone).replace(/\D/g, '').replace(/^91/, '').slice(-10);
   if (num.length !== 10) return [];
-  // Indian carrier email-to-SMS gateways (best-effort, not officially supported)
-  // We try multiple in case one works
-  return [
-    `${num}@airtelap.com`,      // Airtel (AP/Telangana)
-    `${num}@mms.airtelap.com`,  // Airtel MMS
-  ];
-  // Note: Jio and Vi/BSNL don't have public email-to-SMS gateways in India.
-  // The safest fallback is always email to the user's actual email address.
+  return [`${num}@airtelap.com`, `${num}@mms.airtelap.com`];
 }
 
-/**
- * Send SMS via Textbelt (https://textbelt.com)
- * Key 'textbelt' = 1 free SMS per day per IP, no signup required.
- * Falls back gracefully — never throws.
- */
 async function tryTextbeltSms(phone, message) {
   const num = String(phone).replace(/\D/g, '');
   const intlNum = num.startsWith('91') ? '+' + num : '+91' + num.slice(-10);
   try {
     const resp = await axios.post('https://textbelt.com/text', {
-      phone: intlNum,
-      message,
-      key: 'textbelt', // free = 1/day per server IP
+      phone: intlNum, message, key: 'textbelt',
     }, { timeout: 8000 });
     if (resp.data?.success) {
       console.log(`✅ Textbelt SMS sent to ${intlNum} (quota left: ${resp.data.quotaRemaining})`);
@@ -76,9 +131,6 @@ async function tryTextbeltSms(phone, message) {
   }
 }
 
-/**
- * Send SMS via Fast2SMS (if API key configured).
- */
 async function tryFast2Sms(phone, message) {
   const key = process.env.FAST2SMS_API_KEY;
   if (!key || key === 'your_fast2sms_api_key_here') return false;
@@ -99,23 +151,16 @@ async function tryFast2Sms(phone, message) {
   }
 }
 
-/**
- * Master SMS dispatcher — tries every free channel in order.
- * Email is always the guaranteed channel (handled separately).
- */
 async function dispatchSms(phone, message) {
   if (!phone) return;
-  // 1. Try Fast2SMS (if key configured)
   if (await tryFast2Sms(phone, message)) return;
-  // 2. Try Textbelt free (1/day per server IP)
   if (await tryTextbeltSms(phone, message)) return;
-  // 3. Log that SMS wasn't sent — email will carry the notification
   const num = String(phone).replace(/\D/g, '').replace(/^91/, '').slice(-10);
   console.log(`ℹ SMS channels exhausted for +91${num}. Email notification was sent.`);
 }
 
 // ── OTP Email ─────────────────────────────────────────────────────────────────
-async function sendOtpEmail({ to, firstName, otp, amount }) {
+async function sendOtpEmail({ to, firstName, otp, amount, validMins = 10 }) {
   if (!to) return;
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
     body{font-family:'Segoe UI',Arial,sans-serif;background:#0f0f1a;color:#e0e0f0;margin:0;padding:0}
@@ -127,6 +172,7 @@ async function sendOtpEmail({ to, firstName, otp, amount }) {
     .otpbox{background:rgba(247,147,30,.08);border:2px dashed rgba(247,147,30,.4);border-radius:14px;padding:1.5rem;margin:1.25rem 0}
     .otpdigits{font-size:2.8rem;font-weight:900;color:#f7931e;letter-spacing:10px}
     .badge{display:inline-block;background:rgba(34,208,122,.12);border:1px solid rgba(34,208,122,.3);border-radius:20px;padding:.3rem 1rem;color:#22d07a;font-weight:700;font-size:.9rem;margin-bottom:1rem}
+    .timer{display:inline-block;background:rgba(255,107,53,.1);border:1px solid rgba(255,107,53,.3);border-radius:20px;padding:.3rem 1rem;color:#ff6b35;font-weight:700;font-size:.85rem;margin-top:.5rem}
     .warn{background:rgba(255,107,53,.08);border:1px solid rgba(255,107,53,.2);border-radius:10px;padding:.75rem 1rem;font-size:.8rem;color:rgba(255,255,255,.5);margin-top:1.25rem}
     .ftr{background:rgba(255,255,255,.02);padding:1rem 2rem;text-align:center;font-size:.75rem;color:rgba(255,255,255,.25);border-top:1px solid rgba(255,255,255,.06)}
   </style></head><body><div class="wrap"><div class="card">
@@ -142,7 +188,7 @@ async function sendOtpEmail({ to, firstName, otp, amount }) {
       <div class="otpbox">
         <div style="color:rgba(255,255,255,.4);font-size:.72rem;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:.5rem">Your OTP</div>
         <div class="otpdigits">${otp}</div>
-        <div style="color:rgba(255,255,255,.3);font-size:.75rem;margin-top:.5rem">⏱ Valid for 10 minutes only. Do not refresh.</div>
+        <div class="timer">⏱ Valid for ${validMins} minutes only</div>
       </div>
       <div class="warn">🔒 Never share this OTP. SkyWay/JusPay will NEVER ask for it.<br>If you didn't initiate this, ignore this email.</div>
     </div>
@@ -152,7 +198,7 @@ async function sendOtpEmail({ to, firstName, otp, amount }) {
   await mailer.sendMail({
     from: `"SkyWay · JusPay OTP" <${process.env.EMAIL_USER}>`,
     to,
-    subject: `🔐 ${otp} — SkyWay Payment OTP (valid 10 mins)`,
+    subject: `🔐 ${otp} — SkyWay Payment OTP (valid ${validMins} mins)`,
     html,
   });
   console.log(`✅ OTP email sent → ${to}`);
@@ -161,9 +207,9 @@ async function sendOtpEmail({ to, firstName, otp, amount }) {
 // ── Booking Confirmation Email ─────────────────────────────────────────────────
 async function sendConfirmationEmail({ to, firstName, lastName, amount, bookingId, paymentId, method, bookingType, from, to: dest, airline, paidAt }) {
   if (!to) return;
-  const label    = bookingType === 'hotel' ? 'Hotel Reservation' : 'Flight Ticket';
-  const route    = from && dest ? `${from} → ${dest}` : (airline || 'SkyWay');
-  const dateStr  = new Date(paidAt || Date.now()).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
+  const label   = bookingType === 'hotel' ? 'Hotel Reservation' : 'Flight Ticket';
+  const route   = from && dest ? `${from} → ${dest}` : (airline || 'SkyWay');
+  const dateStr = new Date(paidAt || Date.now()).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
 
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
     body{font-family:'Segoe UI',Arial,sans-serif;background:#0f0f1a;color:#e0e0f0;margin:0;padding:0}
@@ -216,59 +262,168 @@ async function sendConfirmationEmail({ to, firstName, lastName, amount, bookingI
   console.log(`✅ Confirmation email → ${to}`);
 }
 
+// ── Payment Failure Email ──────────────────────────────────────────────────────
+async function sendPaymentFailureEmail({ to, firstName, amount, reason, method }) {
+  if (!to) return;
+  const reasonText = reason === 'insufficient_funds'
+    ? 'Insufficient balance in your account'
+    : reason === 'daily_limit_exceeded'
+    ? 'Daily transaction limit exceeded'
+    : 'Transaction declined by bank';
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+    body{font-family:'Segoe UI',Arial,sans-serif;background:#0f0f1a;color:#e0e0f0;margin:0;padding:0}
+    .wrap{max-width:520px;margin:0 auto;padding:2rem 1rem}
+    .card{background:linear-gradient(135deg,#1a1a3e,#1e1040);border-radius:16px;overflow:hidden;border:1px solid rgba(255,255,255,.08)}
+    .hdr{background:linear-gradient(135deg,#3a1a1a,#601020);padding:2rem;text-align:center;border-bottom:1px solid rgba(255,70,70,.25)}
+    .body{padding:2rem;text-align:center}
+    .warn-box{background:rgba(255,70,70,.08);border:1px solid rgba(255,70,70,.25);border-radius:12px;padding:1.25rem;margin:1rem 0;text-align:left}
+    .ftr{background:rgba(255,255,255,.02);padding:1rem 2rem;text-align:center;font-size:.75rem;color:rgba(255,255,255,.25);border-top:1px solid rgba(255,255,255,.06)}
+  </style></head><body><div class="wrap"><div class="card">
+    <div class="hdr">
+      <div style="font-size:2.5rem;margin-bottom:.5rem">✕</div>
+      <div style="color:#fff;font-size:1.1rem;font-weight:700">Payment Failed</div>
+    </div>
+    <div class="body">
+      <p>Hello <strong>${firstName || 'User'}</strong>,</p>
+      <p style="color:rgba(255,255,255,.6)">Your payment of <strong style="color:#f7931e">₹${Number(amount || 0).toLocaleString('en-IN')}</strong> via ${(method || 'UPI').toUpperCase()} could not be processed.</p>
+      <div class="warn-box">
+        <div style="color:#ff4646;font-weight:700;margin-bottom:.5rem">❌ Reason: ${reasonText}</div>
+        <div style="font-size:.8rem;color:rgba(255,255,255,.4)">No amount has been deducted from your account. Please try again with a different payment method or ensure sufficient funds.</div>
+      </div>
+      <p style="font-size:.85rem;color:rgba(255,255,255,.5)">If you believe this is an error, please contact your bank or try again.</p>
+    </div>
+    <div class="ftr">SkyWay Travel · Powered by JusPay · Automated message — do not reply.</div>
+  </div></div></body></html>`;
+
+  await mailer.sendMail({
+    from: `"SkyWay Travel" <${process.env.EMAIL_USER}>`,
+    to,
+    subject: `❌ Payment Failed — ₹${Number(amount).toLocaleString('en-IN')} | SkyWay`,
+    html,
+  });
+  console.log(`📧 Payment failure email → ${to}`);
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // ROUTES
 // ════════════════════════════════════════════════════════════════════════════
 
 /**
+ * POST /api/payments/validate-upi
+ * Validates UPI ID format and resolves the associated bank.
+ * In production this would call the NPCI UPI resolution API.
+ */
+router.post('/validate-upi', async (req, res) => {
+  const { upiId } = req.body;
+  if (!upiId) return res.status(400).json({ success: false, error: 'UPI ID required' });
+
+  // Format validation
+  const upiRegex = /^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$/;
+  if (!upiRegex.test(upiId)) {
+    return res.status(400).json({ success: false, error: 'Invalid UPI ID format' });
+  }
+
+  // Simulate NPCI resolution delay (300ms)
+  await new Promise(r => setTimeout(r, 300 + Math.random() * 200));
+
+  const bankInfo = resolveUpiBank(upiId);
+  if (!bankInfo) {
+    return res.status(400).json({ success: false, error: 'UPI ID could not be verified. Please check and try again.' });
+  }
+
+  const username = upiId.split('@')[0];
+  // Mask the name: "john" → "jo**" etc.
+  const maskedName = username.slice(0, 2) + '*'.repeat(Math.max(2, username.length - 2));
+
+  res.json({
+    success: true,
+    valid: true,
+    bank: bankInfo.bank,
+    bankIcon: bankInfo.icon,
+    bankColor: bankInfo.color,
+    handle: upiId.split('@')[1],
+    maskedVpa: `${maskedName}@${upiId.split('@')[1]}`,
+  });
+});
+
+/**
  * POST /api/payments/send-otp
+ * One OTP per device: if deviceId has an active session, returns conflict.
  * Generates OTP → sends email (always) + SMS (best-effort free channels)
  */
 router.post('/send-otp', async (req, res) => {
-  const { email, phone, firstName, amount, method, bookingType, from, to, airline } = req.body;
+  const { email, phone, firstName, amount, method, bookingType, from, to, airline, deviceId } = req.body;
   if (!email && !phone) {
     return res.status(400).json({ success: false, error: 'Email or phone required' });
   }
 
-  const otp       = generateOtp();
+  // ── One OTP per device enforcement ──────────────────────────────────────
+  if (deviceId) {
+    const existing = deviceStore.get(deviceId);
+    if (existing && existing.expiresAt > Date.now()) {
+      // Device already has a pending session — return the existing sessionId
+      // so the user can just enter the OTP they already received
+      console.log(`⚠ Device ${deviceId} already has active session ${existing.sessionId}`);
+      return res.json({
+        success: true,
+        sessionId: existing.sessionId,
+        emailSent: true,
+        expiresInMinutes: existing.isUpi ? 5 : 10,
+        alreadySent: true,
+        message: 'OTP already sent to your registered contact. Please check your email/SMS.',
+      });
+    }
+  }
+
+  const otp = generateOtp();
   const sessionId = 'sess_' + Math.random().toString(36).substr(2, 16);
-  const expiresAt  = Date.now() + 10 * 60 * 1000; // 10 minutes
+
+  // UPI → 5-min session; Card / Net Banking → 10-min session
+  const isUpi     = (method || '').toLowerCase() === 'upi';
+  const expiryMs  = isUpi ? 5 * 60 * 1000 : 10 * 60 * 1000;
+  const expiresAt = Date.now() + expiryMs;
 
   otpStore.set(sessionId, {
     otp, expiresAt, attempts: 0,
     payload: { email, phone, firstName, amount, method, bookingType, from, to, airline },
   });
 
+  // Track this device
+  if (deviceId) {
+    deviceStore.set(deviceId, { sessionId, expiresAt, isUpi });
+  }
+
+  const validMins = isUpi ? 5 : 10;
+  const smsText   = `SkyWay OTP: ${otp} for Rs.${Number(amount || 0).toLocaleString('en-IN')} payment. Valid ${validMins} min. DO NOT share. -JusPay`;
+
   // ── Send OTP via ALL available free channels ──
   const results = await Promise.allSettled([
-    // 1. Email — unlimited free ✅
-    sendOtpEmail({ to: email, firstName, otp, amount }),
-    // 2. SMS — best-effort free (Textbelt 1/day, then Fast2SMS if key set)
-    dispatchSms(phone, `SkyWay OTP: ${otp} for Rs.${Number(amount || 0).toLocaleString('en-IN')} payment. Valid 10 min. DO NOT share. -JusPay`),
+    sendOtpEmail({ to: email, firstName, otp, amount, validMins }),
+    dispatchSms(phone, smsText),
   ]);
 
   const emailSent = results[0].status === 'fulfilled';
   if (results[0].status === 'rejected') console.log('OTP email error:', results[0].reason?.message);
 
-  console.log(`🔐 OTP [${otp}] → session ${sessionId} | email:${emailSent}`);
+  console.log(`🔐 OTP [${otp}] → session ${sessionId} | device:${deviceId || 'unknown'} | method:${method} | expires:${validMins}min | email:${emailSent}`);
 
   res.json({
     success: true,
     sessionId,
     emailSent,
-    message: emailSent
-      ? `OTP sent to ${email}`
-      : 'OTP generated — check your email',
-    expiresInMinutes: 10,
+    expiresInMinutes: validMins,
+    message: emailSent ? `OTP sent to ${email}` : 'OTP generated — check your email',
   });
 });
 
 /**
  * POST /api/payments/verify-otp
- * Verifies OTP → processes payment → sends confirmation email + SMS
+ * Verifies OTP → runs balance check → processes payment OR returns failure
+ * Returns { success, paymentStatus: 'captured'|'failed', ... }
  */
 router.post('/verify-otp', async (req, res) => {
-  const { sessionId, otp: userOtp } = req.body;
+  const { sessionId, otp: userOtp, upiId, cardLast4 } = req.body;
   if (!sessionId || !userOtp) {
     return res.status(400).json({ success: false, error: 'sessionId and otp required' });
   }
@@ -296,30 +451,66 @@ router.post('/verify-otp', async (req, res) => {
     });
   }
 
-  // ✅ OTP correct — process payment
+  // ✅ OTP correct — run balance check
   const { email, phone, firstName, amount, method, bookingType, from, to, airline } = session.payload;
   otpStore.delete(sessionId);
 
-  const orderId       = 'order_' + Math.random().toString(36).substr(2, 12).toUpperCase();
-  const paymentId     = 'pay_'   + Math.random().toString(36).substr(2, 12).toUpperCase();
-  const bookingId     = (bookingType === 'hotel' ? 'HTL' : 'SKY') + Math.random().toString(36).substr(2, 8).toUpperCase();
-  const paidAt        = new Date().toISOString();
+  // Simulate realistic bank processing delay (1.2–2.5 sec)
+  await new Promise(r => setTimeout(r, 1200 + Math.random() * 1300));
 
-  // ── Send booking confirmation via ALL channels (background) ──
+  // ── Balance check ──────────────────────────────────────────────────────
+  const balanceCheck = simulateBalanceCheck(amount, method, upiId, cardLast4);
+
+  const orderId   = 'order_' + Math.random().toString(36).substr(2, 12).toUpperCase();
+  const paymentId = 'pay_'   + Math.random().toString(36).substr(2, 12).toUpperCase();
+  const bookingId = (bookingType === 'hotel' ? 'HTL' : 'SKY') + Math.random().toString(36).substr(2, 8).toUpperCase();
+  const processedAt = new Date().toISOString();
+
+  if (!balanceCheck.sufficient) {
+    // ── PAYMENT FAILED ───────────────────────────────────────────────────
+    const failureReason = balanceCheck.reason === 'insufficient_funds'
+      ? 'Insufficient balance in your account. No amount has been deducted.'
+      : balanceCheck.reason === 'daily_limit_exceeded'
+      ? 'Your bank\'s daily transaction limit has been exceeded. Please try again tomorrow or use a different account.'
+      : 'Your bank declined the transaction. Please contact your bank.';
+
+    // Send failure notification (background)
+    Promise.allSettled([
+      sendPaymentFailureEmail({ to: email, firstName, amount, reason: balanceCheck.reason, method }),
+      dispatchSms(phone, `SkyWay: Your payment of Rs.${Number(amount).toLocaleString('en-IN')} FAILED. Reason: ${balanceCheck.reason === 'insufficient_funds' ? 'Insufficient funds' : 'Declined by bank'}. No amount deducted. -SkyWay`),
+    ]).catch(() => {});
+
+    console.log(`❌ Payment FAILED ${paymentId} | Reason: ${balanceCheck.reason} | ₹${amount}`);
+
+    return res.json({
+      success: true,           // OTP was correct (success: false would mean OTP error)
+      paymentStatus: 'failed', // Payment itself failed
+      orderId, paymentId, bookingId,
+      amount, currency: 'INR',
+      method: method || 'upi',
+      failureReason,
+      failureCode: balanceCheck.reason,
+      processedAt,
+    });
+  }
+
+  // ── PAYMENT CAPTURED ─────────────────────────────────────────────────────
+  const paidAt = processedAt;
+
+  // Send booking confirmation via ALL channels (background)
   Promise.allSettled([
-    // Email — unlimited free ✅
     sendConfirmationEmail({ to: email, firstName, lastName: '', amount, bookingId, paymentId, method, bookingType, from, to, airline, paidAt }),
-    // SMS — best-effort free channels
     dispatchSms(phone, `SkyWay Booking ${bookingId} CONFIRMED! Amount: Rs.${Number(amount).toLocaleString('en-IN')}. Txn: ${paymentId}. Have a great trip! -SkyWay`),
   ]).then(results => {
     results.forEach((r, i) => {
       if (r.status === 'rejected') console.log(`Confirmation ${i === 0 ? 'email' : 'SMS'} error:`, r.reason?.message);
     });
-    console.log(`✅ Payment ${paymentId} | Booking ${bookingId} | ₹${amount}`);
+    console.log(`✅ Payment CAPTURED ${paymentId} | Booking ${bookingId} | ₹${amount}`);
   });
 
   res.json({
     success: true,
+    paymentStatus: 'captured',
     orderId, paymentId, bookingId,
     amount, currency: 'INR',
     method: method || 'card',

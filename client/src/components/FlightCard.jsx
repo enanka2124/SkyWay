@@ -1,17 +1,17 @@
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
-export default function FlightCard({ flight }) {
+export default function FlightCard({ flight, passengers = 1 }) {
   const navigate = useNavigate()
   const { user } = useAuth()
 
   const handleBook = (e) => {
     e.stopPropagation()
     if (!user) {
-      navigate('/signin', { state: { from: '/checkout', bookingState: { type: 'flight', data: flight } } })
+      navigate('/signin', { state: { from: '/checkout', bookingState: { type: 'flight', data: { ...flight, passengers } } } })
       return
     }
-    navigate('/checkout', { state: { type: 'flight', data: flight } })
+    navigate('/checkout', { state: { type: 'flight', data: { ...flight, passengers } } })
   }
 
   return (
@@ -82,7 +82,7 @@ export default function FlightCard({ flight }) {
         </div>
 
         {/* Price col */}
-        <div className="price-col" style={{ flexShrink: 0 }}>
+          <div className="price-col" style={{ flexShrink: 0 }}>
           <div className="mb-2">
             <div
               className="font-syne font-bold"
@@ -95,9 +95,15 @@ export default function FlightCard({ flight }) {
                 letterSpacing: '-0.5px',
               }}
             >
-              ₹{flight.price.toLocaleString('en-IN')}
+              ₹{(passengers > 1 ? flight.price * passengers : flight.price).toLocaleString('en-IN')}
             </div>
-            <div className="text-xs text-text-muted">per person</div>
+            {passengers > 1 ? (
+              <div className="text-xs text-text-muted">
+                total · ₹{flight.price.toLocaleString('en-IN')}/person
+              </div>
+            ) : (
+              <div className="text-xs text-text-muted">per person</div>
+            )}
           </div>
           <button className="book-btn" onClick={handleBook}>Book Now →</button>
         </div>

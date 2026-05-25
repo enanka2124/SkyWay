@@ -19,6 +19,8 @@ export default function Checkout() {
   const [nationality, setNationality] = useState('')
   const [showPayment, setShowPayment] = useState(false)
   const [confirmed, setConfirmed] = useState(false)
+  const [paymentFailed, setPaymentFailed] = useState(false)
+  const [paymentFailureInfo, setPaymentFailureInfo] = useState(null)
   const [ticketId, setTicketId] = useState('')
 
   const handlePhoneChange = (e) => {
@@ -53,16 +55,58 @@ export default function Checkout() {
   const type = booking.type
   const item = booking.data
 
+  // ── Parse passenger count from e.g. "2 Adults, 1 Child" ──────────────────
+  const parsePassengers = (str) => {
+    if (!str || typeof str !== 'string') return 1
+    // Sum all numbers in the string: "2 Adults, 1 Child" → 3
+    const nums = str.match(/\d+/g)
+    if (!nums) return 1
+    return nums.reduce((s, n) => s + parseInt(n, 10), 0)
+  }
+
+  // Round-trip date gap surcharge:
+  // Each full 7 days of gap beyond the first 3 days → +6% on base
+  const getRoundTripSurcharge = (depDate, retDate) => {
+    if (!depDate || !retDate) return 0
+    const dep = new Date(depDate)
+    const ret = new Date(retDate)
+    const days = Math.max(0, Math.ceil((ret - dep) / (1000 * 60 * 60 * 24)))
+    if (days <= 3) return 0
+    const extraWeeks = Math.floor((days - 3) / 7) // each 7-day block beyond first 3 days
+    return Math.min(extraWeeks * 0.06, 0.36) // cap at +36% (6 weeks)
+  }
+
   //  Price Calculations 
   const getFlightPricing = () => {
-    const base = item.price
+    const passengerCount = parsePassengers(item.passengers || booking.passengers)
+    const pricePerPerson = item.price  // base price is always per person
+
+    // Round-trip surcharge on per-person base
+    const surchargeRate = item.tripType === 'round'
+      ? getRoundTripSurcharge(item.searchedDate, item.returnDate)
+      : 0
+    const surchargePerPerson = Math.round(pricePerPerson * surchargeRate)
+    const effectivePerPerson = pricePerPerson + surchargePerPerson
+
+    const base = effectivePerPerson * passengerCount
     const taxes = Math.round(base * 0.18)
     const fee = 149
     if (item.isDeal && item.discount) {
       const discountVal = Math.round((base + taxes + fee) * (item.discount / 100))
-      return { base, taxes, fee, discount: discountVal, total: (base + taxes + fee) - discountVal }
+      return {
+        base, taxes, fee, discount: discountVal,
+        total: (base + taxes + fee) - discountVal,
+        passengerCount, pricePerPerson: effectivePerPerson,
+        surchargeRate, surchargePerPerson,
+        isRoundTrip: item.tripType === 'round',
+      }
     }
-    return { base, taxes, fee, discount: 0, total: base + taxes + fee }
+    return {
+      base, taxes, fee, discount: 0, total: base + taxes + fee,
+      passengerCount, pricePerPerson: effectivePerPerson,
+      surchargeRate, surchargePerPerson,
+      isRoundTrip: item.tripType === 'round',
+    }
   }
 
   const getHotelPricing = () => {
@@ -91,9 +135,11 @@ export default function Checkout() {
 
   const handlePaymentSuccess = async (paymentData) => {
     setShowPayment(false)
-    const id = type === 'hotel'
-      ? 'HTL' + Math.random().toString(36).substr(2, 8).toUpperCase()
-      : 'SKY' + Math.random().toString(36).substr(2, 8).toUpperCase()
+    const id = paymentData?.bookingId || (
+      type === 'hotel'
+        ? 'HTL' + Math.random().toString(36).substr(2, 8).toUpperCase()
+        : 'SKY' + Math.random().toString(36).substr(2, 8).toUpperCase()
+    )
 
     setTicketId(id)
 
@@ -111,35 +157,67 @@ export default function Checkout() {
       passenger: { firstName, lastName, email, phone },
       paymentId: paymentData?.paymentId,
       paymentMethod: paymentData?.method || 'card',
+      paymentStatus: 'confirmed',
       bookedAt: new Date().toISOString(),
     }
     trips.push(tripEntry)
     localStorage.setItem(tripsKey, JSON.stringify(trips))
 
-    // Also try server booking — use the registered account email so it appears in My Trips
+    // Also try server booking
     const accountEmail = user?.email || email
     try {
       await fetch('/api/bookings', {
-        method: 'POST', 
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           type,
           flight: type !== 'hotel' ? item : undefined,
           hotel: type === 'hotel' ? item : undefined,
           pricing,
-          firstName, 
-          lastName, 
-          // userEmail is the account owner email; passenger email is the traveller contact
+          firstName, lastName,
           email: accountEmail,
-          phone, 
-          passport, 
-          nationality 
+          phone, passport, nationality,
+          paymentId: paymentData?.paymentId,
+          paymentMethod: paymentData?.method || 'card',
         }),
       })
     } catch { /* already saved locally */ }
 
-
     setConfirmed(true)
+  }
+
+  const handlePaymentFailed = async (paymentData) => {
+    setShowPayment(false)
+    const failedId = paymentData?.paymentId || 'FAIL_' + Math.random().toString(36).substr(2, 8).toUpperCase()
+
+    // Save failed booking to localStorage for history
+    const tripsKey = `skyway_trips_${user?._id || 'guest'}`
+    const trips = JSON.parse(localStorage.getItem(tripsKey) || '[]')
+    const failedEntry = {
+      type: type === 'deal' ? 'flight' : type,
+      ticketId: failedId,
+      flight: type !== 'hotel' ? item : undefined,
+      hotel: type === 'hotel' ? item : undefined,
+      checkin: booking.searchInfo?.checkin,
+      checkout: booking.searchInfo?.checkout,
+      pricing: { ...pricing },
+      passenger: { firstName, lastName, email, phone },
+      paymentId: failedId,
+      paymentMethod: paymentData?.method || 'upi',
+      paymentStatus: 'failed',
+      failureReason: paymentData?.failureReason,
+      failureCode: paymentData?.failureCode,
+      bookedAt: new Date().toISOString(),
+    }
+    trips.push(failedEntry)
+    localStorage.setItem(tripsKey, JSON.stringify(trips))
+
+    setPaymentFailureInfo({
+      reason: paymentData?.failureReason,
+      code: paymentData?.failureCode,
+      paymentId: failedId,
+    })
+    setPaymentFailed(true)
   }
 
   return (
@@ -148,7 +226,7 @@ export default function Checkout() {
       <section className="relative z-10" style={{ padding: '5rem 0 4rem', minHeight: '80vh' }}>
         <div className="container-main" style={{ maxWidth: 1000, margin: '0 auto' }}>
 
-          {!confirmed ? (
+          {!confirmed && !paymentFailed ? (
             <>
               {/* Page Header */}
               <div className="mb-8">
@@ -171,6 +249,7 @@ export default function Checkout() {
                   }}
                   passengerInfo={{ firstName, lastName, email, phone }}
                   onSuccess={handlePaymentSuccess}
+                  onPaymentFailed={handlePaymentFailed}
                   onClose={() => setShowPayment(false)}
                 />
               ) : (
@@ -354,8 +433,20 @@ export default function Checkout() {
 
                     {(type === 'flight' || type === 'deal') && (
                       <div className="flex flex-col gap-2.5">
+                        {/* Per-person breakdown */}
+                        <div className="price-line" style={{ fontSize: '0.8rem' }}>
+                          <span>₹{pricing.pricePerPerson.toLocaleString('en-IN')} × {pricing.passengerCount} passenger{pricing.passengerCount > 1 ? 's' : ''}</span>
+                          <span>₹{(pricing.pricePerPerson * pricing.passengerCount).toLocaleString('en-IN')}</span>
+                        </div>
+                        {/* Round-trip surcharge if applicable */}
+                        {pricing.isRoundTrip && pricing.surchargePerPerson > 0 && (
+                          <div className="price-line" style={{ fontSize: '0.8rem', color: 'rgba(245,166,35,0.8)' }}>
+                            <span>Round-trip surcharge (incl. above)</span>
+                            <span>+₹{(pricing.surchargePerPerson * pricing.passengerCount).toLocaleString('en-IN')}</span>
+                          </div>
+                        )}
                         <div className="price-line"><span>Base fare</span><span>₹{pricing.base.toLocaleString('en-IN')}</span></div>
-                        <div className="price-line"><span>Taxes & fees</span><span>₹{pricing.taxes.toLocaleString('en-IN')}</span></div>
+                        <div className="price-line"><span>Taxes & fees (18%)</span><span>₹{pricing.taxes.toLocaleString('en-IN')}</span></div>
                         <div className="price-line"><span>Convenience fee</span><span>₹{pricing.fee}</span></div>
                         {pricing.discount > 0 && (
                           <div className="price-line font-bold" style={{ color: '#22d07a' }}>
@@ -365,8 +456,14 @@ export default function Checkout() {
                         )}
                         <div className="border-t border-white/8 my-2"></div>
                         <div className="price-line total"><span>Total</span><span>₹{pricing.total.toLocaleString('en-IN')}</span></div>
+                        {pricing.passengerCount > 1 && (
+                          <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', textAlign: 'right' }}>
+                            ≈ ₹{Math.round(pricing.total / pricing.passengerCount).toLocaleString('en-IN')} per person
+                          </div>
+                        )}
                       </div>
                     )}
+
 
                     {type === 'hotel' && (
                       <div className="flex flex-col gap-2.5">
@@ -503,6 +600,67 @@ export default function Checkout() {
                   <Link to="/my-trips" className="btn-accent no-underline px-8 py-3.5 text-base font-semibold" style={{ minWidth: '180px' }}>View My Trips</Link>
                   <Link to="/" className="btn-ghost no-underline px-8 py-3.5 text-base font-semibold" style={{ minWidth: '180px' }}>Book Another</Link>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Payment Failed Screen ──────────────────────────────── */}
+          {paymentFailed && paymentFailureInfo && (
+            <div className="text-center py-12 max-w-xl mx-auto">
+              {/* Failed Icon */}
+              <div style={{
+                width: 90, height: 90, borderRadius: '50%', margin: '0 auto 1.5rem',
+                background: 'rgba(255,70,70,0.1)', border: '2px solid rgba(255,70,70,0.4)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2.5rem',
+              }}>✕</div>
+
+              <h1 className="font-syne text-3xl font-extrabold mb-2" style={{ color: '#ff4646' }}>Payment Failed</h1>
+              <p className="text-text-muted mb-6">Your transaction could not be processed by the bank.</p>
+
+              {/* Failure detail card */}
+              <div style={{
+                background: 'rgba(255,70,70,0.06)', border: '1px solid rgba(255,70,70,0.2)',
+                borderRadius: 16, padding: '1.5rem', marginBottom: '1.75rem', textAlign: 'left',
+              }}>
+                <div style={{ fontWeight: 700, color: '#ff8080', marginBottom: '0.5rem', fontSize: '1rem' }}>
+                  {paymentFailureInfo.code === 'insufficient_funds' ? '💳 Insufficient Balance' :
+                    paymentFailureInfo.code === 'daily_limit_exceeded' ? '🚫 Daily Limit Exceeded' : '❌ Transaction Declined'}
+                </div>
+                <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.875rem', lineHeight: 1.7, marginBottom: '0.75rem' }}>
+                  {paymentFailureInfo.reason}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'rgba(255,255,255,0.3)', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '0.75rem' }}>
+                  <span>Reference ID</span>
+                  <span style={{ fontFamily: 'monospace', color: 'rgba(255,255,255,0.5)' }}>{paymentFailureInfo.paymentId}</span>
+                </div>
+              </div>
+
+              {/* No deduction notice */}
+              <div style={{
+                background: 'rgba(34,208,122,0.06)', border: '1px solid rgba(34,208,122,0.2)',
+                borderRadius: 12, padding: '0.875rem 1.25rem', marginBottom: '1.75rem',
+                display: 'flex', alignItems: 'center', gap: '0.75rem',
+              }}>
+                <span style={{ fontSize: '1.25rem' }}>✓</span>
+                <span style={{ color: '#22d07a', fontSize: '0.875rem', fontWeight: 600 }}>
+                  No amount has been deducted from your account.
+                </span>
+              </div>
+
+              {/* What to do next */}
+              <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.8rem', marginBottom: '2rem' }}>
+                💡 Try a different payment method, ensure sufficient balance, or contact your bank.
+                <br />A failure notification has been sent to <strong style={{ color: 'rgba(255,255,255,0.6)' }}>{email}</strong>.
+              </div>
+
+              <div className="flex gap-4 justify-center flex-wrap">
+                <button
+                  className="btn-accent px-8 py-3"
+                  onClick={() => { setPaymentFailed(false); setPaymentFailureInfo(null); setShowPayment(true) }}
+                >
+                  Try Again
+                </button>
+                <Link to="/" className="btn-ghost no-underline px-8 py-3">Go Home</Link>
               </div>
             </div>
           )}

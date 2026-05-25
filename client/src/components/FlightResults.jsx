@@ -1,9 +1,17 @@
 import { useState, useEffect } from 'react'
 import FlightCard from './FlightCard'
 
-export default function FlightResults({ flights, from, to, date, returnDate, tripType, loading, filterPrices }) {
+export default function FlightResults({ flights, from, to, date, returnDate, tripType, passengers, loading, filterPrices }) {
   const [sortMethod, setSortMethod] = useState('cheapest')
   const [sortedFlights, setSortedFlights] = useState([])
+
+  // Parse passenger count from string like "2 Adults, 1 Child" → 3
+  const passengerCount = (() => {
+    if (!passengers || typeof passengers !== 'string') return 1
+    const nums = passengers.match(/\d+/g)
+    if (!nums) return 1
+    return nums.reduce((s, n) => s + parseInt(n, 10), 0)
+  })()
 
   const getDurationMins = (durStr) => {
     const hours = parseInt(durStr?.match(/(\d+)h/)?.[1] || 0)
@@ -153,7 +161,7 @@ export default function FlightResults({ flights, from, to, date, returnDate, tri
               </div>
             ) : (
               sortedFlights.map((flight, i) => (
-                <FlightCard key={flight.id || i} flight={{ ...flight, searchedDate: date, returnDate, tripType }} />
+                <FlightCard key={flight.id || i} flight={{ ...flight, searchedDate: date, returnDate, tripType }} passengers={passengerCount} />
               ))
             )}
           </div>

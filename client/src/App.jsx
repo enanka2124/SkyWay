@@ -12,6 +12,7 @@ import Checkout from './pages/Checkout'
 import JobApply from './pages/JobApply'
 import ResetPassword from './pages/ResetPassword'
 import AccountDetails from './pages/AccountDetails'
+import TripDetails from './pages/TripDetails'
 import SkyBackground from './components/SkyBackground'
 import { Toaster } from 'react-hot-toast'
 
@@ -50,6 +51,7 @@ export default function App() {
           <Route path="/" element={<Home />} />
           <Route path="/hotels" element={<Hotels />} />
           <Route path="/my-trips" element={<MyTrips />} />
+          <Route path="/my-trips/:ticketId" element={<TripDetails />} />
           <Route path="/account-details" element={<AccountDetails />} />
           <Route path="/deals" element={<Deals />} />
           <Route path="/signin" element={<SignIn />} />

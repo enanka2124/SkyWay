@@ -4,18 +4,27 @@ import { useState, useEffect, useRef } from 'react'
  * JusPayOtpPage — Real OTP flow:
  *  - On mount: calls /api/payments/send-otp → real OTP sent to user's email + SMS
  *  - User enters OTP → calls /api/payments/verify-otp → payment completes
- *  - On success: booking confirmation email + SMS automatically sent by server
+ *  - UPI payments: shows a bank-redirect interstitial first, then 5-min countdown timer
+ *  - Card/NetBanking: 10-min countdown timer
+ *  - Session auto-expires at 0:00 with clear error message
  */
-export default function JusPayOtpPage({ amount, method, cardNumber, upiId, bank, passengerInfo, onOtpSuccess, onBack }) {
+export default function JusPayOtpPage({ amount, method, cardNumber, upiId, upiInfo, bank, deviceId, passengerInfo, onOtpSuccess, onBack }) {
   const [otp, setOtp] = useState(['', '', '', '', '', ''])
   const [sessionId, setSessionId] = useState(null)
-  const [sendStatus, setSendStatus] = useState('sending') // 'sending' | 'sent' | 'error'
+  const [sendStatus, setSendStatus] = useState('sending')
   const [deliveryInfo, setDeliveryInfo] = useState({ email: false, sms: false })
   const [resendTimer, setResendTimer] = useState(30)
   const [canResend, setCanResend] = useState(false)
   const [verifying, setVerifying] = useState(false)
+  const [bankProcessing, setBankProcessing] = useState(false)
   const [otpError, setOtpError] = useState('')
+  const [sessionExpired, setSessionExpired] = useState(false)
+  const [expiresInMins, setExpiresInMins] = useState(null)
+  const [sessionSecondsLeft, setSessionSecondsLeft] = useState(null)
+  const [alreadySent, setAlreadySent] = useState(false)
   const inputRefs = useRef([])
+
+  const isUpi = (method || '').toLowerCase() === 'upi'
 
   // ── Send OTP on mount ──────────────────────────────────────────────────────
   const sendOtp = async () => {
@@ -24,6 +33,9 @@ export default function JusPayOtpPage({ amount, method, cardNumber, upiId, bank,
     setOtpError('')
     setCanResend(false)
     setResendTimer(30)
+    setSessionExpired(false)
+    setSessionSecondsLeft(null)
+    setAlreadySent(false)
 
     try {
       const res = await fetch('/api/payments/send-otp', {
@@ -39,6 +51,7 @@ export default function JusPayOtpPage({ amount, method, cardNumber, upiId, bank,
           from: passengerInfo?.from,
           to: passengerInfo?.to,
           airline: passengerInfo?.airline,
+          deviceId,
         }),
       })
       const data = await res.json()
@@ -46,7 +59,10 @@ export default function JusPayOtpPage({ amount, method, cardNumber, upiId, bank,
         setSessionId(data.sessionId)
         setDeliveryInfo({ email: data.emailSent, sms: data.smsSent })
         setSendStatus('sent')
-        // Auto-focus first box
+        if (data.alreadySent) setAlreadySent(true)
+        const validMins = data.expiresInMinutes || (isUpi ? 5 : 10)
+        setExpiresInMins(validMins)
+        setSessionSecondsLeft(validMins * 60)
         setTimeout(() => inputRefs.current[0]?.focus(), 100)
       } else {
         setSendStatus('error')
@@ -58,7 +74,7 @@ export default function JusPayOtpPage({ amount, method, cardNumber, upiId, bank,
 
   useEffect(() => { sendOtp() }, []) // eslint-disable-line
 
-  // ── Countdown timer ────────────────────────────────────────────────────────
+  // ── Resend countdown (30s) ─────────────────────────────────────────────────
   useEffect(() => {
     if (sendStatus !== 'sent') return
     if (resendTimer <= 0) { setCanResend(true); return }
@@ -66,10 +82,33 @@ export default function JusPayOtpPage({ amount, method, cardNumber, upiId, bank,
     return () => clearTimeout(t)
   }, [resendTimer, sendStatus])
 
+  // ── Session expiry countdown ───────────────────────────────────────────────
+  useEffect(() => {
+    if (sendStatus !== 'sent' || sessionSecondsLeft === null) return
+    if (sessionSecondsLeft <= 0) {
+      setSessionExpired(true)
+      setOtpError('Session expired. Please resend the OTP to continue.')
+      return
+    }
+    const t = setTimeout(() => setSessionSecondsLeft(s => s - 1), 1000)
+    return () => clearTimeout(t)
+  }, [sessionSecondsLeft, sendStatus])
+
   const handleResend = () => {
     if (!canResend) return
     sendOtp()
   }
+
+  // Format seconds as MM:SS
+  const formatTimer = (secs) => {
+    if (secs === null || secs < 0) return '00:00'
+    const m = Math.floor(secs / 60)
+    const s = secs % 60
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  }
+
+  // Timer color — red when < 60s
+  const timerColor = sessionSecondsLeft !== null && sessionSecondsLeft < 60 ? '#ff4646' : '#f7931e'
 
   // ── OTP input handlers ─────────────────────────────────────────────────────
   const handleOtpChange = (idx, val) => {
@@ -97,6 +136,7 @@ export default function JusPayOtpPage({ amount, method, cardNumber, upiId, bank,
     const otpStr = otp.join('')
     if (otpStr.length < 6) { setOtpError('Please enter the complete 6-digit OTP.'); return }
     if (!sessionId) { setOtpError('Session expired. Please resend OTP.'); return }
+    if (sessionExpired) { setOtpError('Session expired. Please resend OTP.'); return }
 
     setVerifying(true)
     setOtpError('')
@@ -104,15 +144,25 @@ export default function JusPayOtpPage({ amount, method, cardNumber, upiId, bank,
       const res = await fetch('/api/payments/verify-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId, otp: otpStr }),
+        body: JSON.stringify({
+          sessionId,
+          otp: otpStr,
+          upiId: upiId || undefined,           // for balance check
+          cardLast4: cardNumber ? cardNumber.replace(/\s/g, '').slice(-4) : undefined,
+        }),
       })
       const data = await res.json()
       if (data.success) {
-        onOtpSuccess(data) // Pass full payment result to parent
+        // OTP accepted — show bank processing overlay, then fire result
+        setVerifying(false)
+        setBankProcessing(true)
+        setTimeout(() => {
+          setBankProcessing(false)
+          onOtpSuccess(data) // data.paymentStatus: 'captured' | 'failed'
+        }, 2000)
       } else {
         setOtpError(data.error || 'Incorrect OTP. Please try again.')
         setVerifying(false)
-        // Clear OTP inputs on wrong attempt
         setOtp(['', '', '', '', '', ''])
         setTimeout(() => inputRefs.current[0]?.focus(), 50)
       }
@@ -123,8 +173,8 @@ export default function JusPayOtpPage({ amount, method, cardNumber, upiId, bank,
   }
 
   // Masked display
-  const maskedCard = cardNumber ? '**** **** **** ' + cardNumber.replace(/\s/g, '').slice(-4) : null
-  const maskedUpi  = upiId ? upiId.slice(0, 3) + '***@' + (upiId.split('@')[1] || 'upi') : null
+  const maskedCard  = cardNumber ? '**** **** **** ' + cardNumber.replace(/\s/g, '').slice(-4) : null
+  const maskedUpi   = upiId ? upiId.slice(0, 3) + '***@' + (upiId.split('@')[1] || 'upi') : null
   const maskedEmail = passengerInfo?.email
     ? passengerInfo.email.replace(/(.{2})(.*)(@.*)/, (_, a, b, c) => a + b.replace(/./g, '•') + c)
     : null
@@ -132,21 +182,64 @@ export default function JusPayOtpPage({ amount, method, cardNumber, upiId, bank,
     ? '+91 ' + String(passengerInfo.phone).slice(0, 2) + '••••••' + String(passengerInfo.phone).slice(-2)
     : null
 
+  const isVerifyDisabled = verifying || sendStatus !== 'sent' || otp.join('').length < 6 || sessionExpired
+
   return (
     <div style={{
       minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
       background: 'linear-gradient(135deg, #0f0f1a 0%, #1a1040 50%, #0f0f1a 100%)',
-      fontFamily: "'Inter', sans-serif", padding: '1rem',
+      fontFamily: "'Inter', sans-serif", padding: '1rem', position: 'relative',
     }}>
       <style>{`
         @keyframes jp-pulse { 0%,100%{box-shadow:0 0 0 0 rgba(255,107,53,0.3)} 50%{box-shadow:0 0 0 14px rgba(255,107,53,0)} }
         @keyframes jp-spin  { to{transform:rotate(360deg)} }
         @keyframes jp-fade  { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:none} }
         @keyframes jp-shake { 0%,100%{transform:translateX(0)} 20%{transform:translateX(-6px)} 60%{transform:translateX(6px)} }
+        @keyframes jp-redirect { 0%{width:0%} 100%{width:100%} }
+        @keyframes jp-bank-glow { 0%,100%{opacity:0.6} 50%{opacity:1} }
         .otp-input:focus { border-color:#f7931e !important; background:rgba(247,147,30,0.1) !important; outline:none; }
         .otp-input.filled { border-color:rgba(247,147,30,0.6) !important; background:rgba(247,147,30,0.07) !important; }
         .otp-input.error { animation:jp-shake 0.4s; border-color:#ff4646 !important; background:rgba(255,70,70,0.08) !important; }
+        .otp-input.expired { border-color:rgba(255,255,255,0.08) !important; opacity:0.4 !important; }
       `}</style>
+
+      {/* ── Bank Processing Overlay (after OTP verified, before result) ── */}
+      {bankProcessing && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 200,
+          background: 'rgba(6,6,20,0.92)', backdropFilter: 'blur(16px)',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+          gap: '1.5rem', animation: 'jp-fade 0.3s',
+        }}>
+          <div style={{
+            width: 72, height: 72, borderRadius: '50%',
+            border: '3px solid rgba(255,255,255,0.08)',
+            borderTopColor: isUpi ? '#a855f7' : '#f7931e',
+            borderRightColor: isUpi ? '#6c3af7' : '#ff6b35',
+            animation: 'jp-spin 0.9s linear infinite',
+          }} />
+          <div style={{ textAlign: 'center', maxWidth: 300 }}>
+            <div style={{ color: '#fff', fontWeight: 700, fontSize: '1.15rem', marginBottom: '0.4rem' }}>
+              🏦 Debiting from Your Bank...
+            </div>
+            <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: '0.85rem', lineHeight: 1.6 }}>
+              Securely communicating with{' '}
+              <span style={{ color: isUpi ? '#a855f7' : '#f7931e', fontWeight: 600 }}>
+                {isUpi ? 'UPI / NPCI' : bank || 'your bank'}
+              </span>
+              . Please do not close this window.
+            </div>
+          </div>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            background: 'rgba(255,255,255,0.04)', borderRadius: 20, padding: '6px 16px',
+          }}>
+            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)' }}>🔒 Secured by</span>
+            <span style={{ color: '#f7931e', fontWeight: 900, fontSize: 13 }}>JusPay</span>
+            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)' }}>· NPCI · RBI</span>
+          </div>
+        </div>
+      )}
 
       <div style={{
         width: '100%', maxWidth: 420,
@@ -176,14 +269,30 @@ export default function JusPayOtpPage({ amount, method, cardNumber, upiId, bank,
               <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 11 }}>Secure Payment Gateway</div>
             </div>
           </div>
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 5,
-            background: 'rgba(34,208,122,0.12)', border: '1px solid rgba(34,208,122,0.3)',
-            borderRadius: 20, padding: '3px 10px',
-          }}>
-            <span style={{ fontSize: 10, color: '#22d07a' }}>🔒</span>
-            <span style={{ fontSize: 10, color: '#22d07a', fontWeight: 600 }}>SSL Secured</span>
-          </div>
+          {/* Session countdown timer badge */}
+          {sendStatus === 'sent' && sessionSecondsLeft !== null && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 5,
+              background: sessionExpired ? 'rgba(255,70,70,0.12)' : 'rgba(247,147,30,0.1)',
+              border: `1px solid ${sessionExpired ? 'rgba(255,70,70,0.3)' : 'rgba(247,147,30,0.3)'}`,
+              borderRadius: 20, padding: '4px 10px', animation: 'jp-fade 0.3s',
+            }}>
+              <span style={{ fontSize: 11, color: timerColor }}>⏱</span>
+              <span style={{ fontSize: 12, color: timerColor, fontWeight: 700, fontFamily: 'monospace' }}>
+                {sessionExpired ? 'Expired' : formatTimer(sessionSecondsLeft)}
+              </span>
+            </div>
+          )}
+          {sendStatus !== 'sent' && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 5,
+              background: 'rgba(34,208,122,0.12)', border: '1px solid rgba(34,208,122,0.3)',
+              borderRadius: 20, padding: '3px 10px',
+            }}>
+              <span style={{ fontSize: 10, color: '#22d07a' }}>🔒</span>
+              <span style={{ fontSize: 10, color: '#22d07a', fontWeight: 600 }}>SSL Secured</span>
+            </div>
+          )}
         </div>
 
         {/* ── Body ──────────────────────────────────────────────────────── */}
@@ -197,18 +306,25 @@ export default function JusPayOtpPage({ amount, method, cardNumber, upiId, bank,
           }}>
             <div style={{
               width: 36, height: 36, borderRadius: 8, flexShrink: 0,
-              background: 'linear-gradient(135deg, #2b81d6, #4ba4f9)',
+              background: isUpi
+                ? 'linear-gradient(135deg, #6c3af7, #a855f7)'
+                : 'linear-gradient(135deg, #2b81d6, #4ba4f9)',
               display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16,
             }}>
               {method === 'card' ? '💳' : method === 'upi' ? '📱' : '🏦'}
             </div>
             <div style={{ flex: 1 }}>
               <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 10, marginBottom: 1 }}>
-                {method === 'card' ? 'Debit / Credit Card' : method === 'upi' ? 'UPI' : 'Net Banking'}
+                {method === 'card' ? 'Debit / Credit Card' : method === 'upi' ? 'UPI Payment' : 'Net Banking'}
               </div>
               <div style={{ color: '#fff', fontWeight: 600, fontSize: 13 }}>
                 {maskedCard || maskedUpi || bank || 'Account'}
               </div>
+              {isUpi && (
+                <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: 10, marginTop: 1 }}>
+                  Bank-verified secure session
+                </div>
+              )}
             </div>
             <div style={{ textAlign: 'right' }}>
               <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: 10 }}>AMOUNT</div>
@@ -224,29 +340,62 @@ export default function JusPayOtpPage({ amount, method, cardNumber, upiId, bank,
             <div style={{
               width: 58, height: 58, borderRadius: '50%', margin: '0 auto 1rem',
               background: sendStatus === 'sent'
-                ? 'linear-gradient(135deg,rgba(255,107,53,0.12),rgba(247,147,30,0.12))'
+                ? (isUpi ? 'linear-gradient(135deg,rgba(108,58,247,0.12),rgba(168,85,247,0.12))' : 'linear-gradient(135deg,rgba(255,107,53,0.12),rgba(247,147,30,0.12))')
                 : sendStatus === 'error'
                   ? 'rgba(255,70,70,0.1)'
                   : 'rgba(100,100,255,0.1)',
-              border: sendStatus === 'sent' ? '2px solid rgba(255,107,53,0.4)' : sendStatus === 'error' ? '2px solid rgba(255,70,70,0.4)' : '2px solid rgba(100,100,255,0.3)',
+              border: sendStatus === 'sent'
+                ? (isUpi ? '2px solid rgba(168,85,247,0.4)' : '2px solid rgba(255,107,53,0.4)')
+                : sendStatus === 'error' ? '2px solid rgba(255,70,70,0.4)' : '2px solid rgba(100,100,255,0.3)',
               display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24,
               animation: sendStatus === 'sent' ? 'jp-pulse 2.2s ease-in-out infinite' : 'none',
             }}>
               {sendStatus === 'sending' ? (
                 <div style={{ width: 22, height: 22, border: '2.5px solid rgba(255,255,255,0.15)', borderTopColor: '#f7931e', borderRadius: '50%', animation: 'jp-spin 0.7s linear infinite' }} />
-              ) : sendStatus === 'sent' ? '🔐' : '⚠️'}
+              ) : sendStatus === 'sent' ? (isUpi ? '🏦' : '🔐') : '⚠️'}
             </div>
 
             {sendStatus === 'sending' && (
               <>
-                <div style={{ color: '#fff', fontWeight: 700, fontSize: 17, marginBottom: '0.3rem' }}>Sending OTP...</div>
-                <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>Dispatching to your registered contact</div>
+                <div style={{ color: '#fff', fontWeight: 700, fontSize: 17, marginBottom: '0.3rem' }}>
+                  {isUpi ? 'Connecting to Bank...' : 'Sending OTP...'}
+                </div>
+                <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>
+                  {isUpi ? 'Initiating bank authentication session' : 'Dispatching to your registered contact'}
+                </div>
+                {isUpi && (
+                  <div style={{ marginTop: '0.75rem', height: 3, background: 'rgba(255,255,255,0.06)', borderRadius: 2, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', background: 'linear-gradient(90deg, #6c3af7, #a855f7)', borderRadius: 2, animation: 'jp-redirect 1.5s ease-out forwards' }} />
+                  </div>
+                )}
               </>
             )}
 
             {sendStatus === 'sent' && (
               <div style={{ animation: 'jp-fade 0.4s' }}>
-                <div style={{ color: '#fff', fontWeight: 700, fontSize: 17, marginBottom: '0.4rem' }}>OTP Sent!</div>
+                <div style={{ color: '#fff', fontWeight: 700, fontSize: 17, marginBottom: '0.4rem' }}>
+                  {isUpi ? 'Bank OTP Sent!' : 'OTP Sent!'}
+                </div>
+                {/* Already-sent notice for device dedup */}
+                {alreadySent && (
+                  <div style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 5,
+                    background: 'rgba(245,166,35,0.1)', border: '1px solid rgba(245,166,35,0.3)',
+                    borderRadius: 10, padding: '4px 12px', fontSize: 11, color: '#f5a623', marginBottom: '0.5rem',
+                  }}>
+                    ℹ OTP already sent to this device — check your email/SMS
+                  </div>
+                )}
+                {/* UPI bank display */}
+                {isUpi && upiInfo && (
+                  <div style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 5,
+                    background: 'rgba(168,85,247,0.1)', border: '1px solid rgba(168,85,247,0.25)',
+                    borderRadius: 10, padding: '4px 12px', fontSize: 11, color: '#c084fc', marginBottom: '0.5rem',
+                  }}>
+                    {upiInfo.bankIcon} OTP from {upiInfo.bank}
+                  </div>
+                )}
                 {/* Delivery channels */}
                 <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
                   {maskedEmail && (
@@ -265,7 +414,9 @@ export default function JusPayOtpPage({ amount, method, cardNumber, upiId, bank,
                   )}
                 </div>
                 <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: 12 }}>
-                  Check your email for the 6-digit OTP
+                  {isUpi
+                    ? `Enter the 6-digit OTP sent by your bank (valid ${expiresInMins} min)`
+                    : 'Check your email for the 6-digit OTP'}
                 </div>
               </div>
             )}
@@ -287,14 +438,14 @@ export default function JusPayOtpPage({ amount, method, cardNumber, upiId, bank,
                   <input
                     key={idx}
                     ref={el => inputRefs.current[idx] = el}
-                    className={`otp-input${digit ? ' filled' : ''}${otpError ? ' error' : ''}`}
+                    className={`otp-input${digit ? ' filled' : ''}${otpError ? ' error' : ''}${sessionExpired ? ' expired' : ''}`}
                     type="text"
                     inputMode="numeric"
                     maxLength={1}
                     value={digit}
                     onChange={e => handleOtpChange(idx, e.target.value)}
                     onKeyDown={e => handleKeyDown(idx, e)}
-                    disabled={verifying}
+                    disabled={verifying || sessionExpired}
                     style={{
                       width: 46, height: 54, borderRadius: 10,
                       border: '2px solid rgba(255,255,255,0.1)',
@@ -307,18 +458,18 @@ export default function JusPayOtpPage({ amount, method, cardNumber, upiId, bank,
                 ))}
               </div>
 
-              {/* Error message */}
+              {/* Error / Expired message */}
               {otpError && (
-                <p style={{ color: '#ff4646', fontSize: 12, textAlign: 'center', marginBottom: '0.5rem', animation: 'jp-fade 0.2s' }}>
+                <p style={{ color: sessionExpired ? '#f7931e' : '#ff4646', fontSize: 12, textAlign: 'center', marginBottom: '0.5rem', animation: 'jp-fade 0.2s' }}>
                   {otpError}
                 </p>
               )}
 
               {/* Resend timer */}
               <div style={{ textAlign: 'center', marginBottom: '1.25rem' }}>
-                {canResend ? (
+                {canResend || sessionExpired ? (
                   <button onClick={handleResend} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#f7931e', fontSize: 13, fontWeight: 600, textDecoration: 'underline' }}>
-                    🔄 Resend OTP
+                    🔄 {sessionExpired ? 'Start New Session' : 'Resend OTP'}
                   </button>
                 ) : (
                   <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 12 }}>
@@ -343,16 +494,18 @@ export default function JusPayOtpPage({ amount, method, cardNumber, upiId, bank,
           {/* Verify button */}
           <button
             onClick={handleVerify}
-            disabled={verifying || sendStatus !== 'sent' || otp.join('').length < 6}
+            disabled={isVerifyDisabled}
             style={{
               width: '100%', padding: '0.95rem', borderRadius: 12, border: 'none',
-              cursor: verifying || sendStatus !== 'sent' || otp.join('').length < 6 ? 'not-allowed' : 'pointer',
-              background: verifying || sendStatus !== 'sent' || otp.join('').length < 6
+              cursor: isVerifyDisabled ? 'not-allowed' : 'pointer',
+              background: isVerifyDisabled
                 ? 'rgba(247,147,30,0.25)'
-                : 'linear-gradient(135deg, #ff6b35, #f7931e)',
+                : (isUpi
+                  ? 'linear-gradient(135deg, #6c3af7, #a855f7)'
+                  : 'linear-gradient(135deg, #ff6b35, #f7931e)'),
               color: '#fff', fontWeight: 700, fontSize: 15,
-              boxShadow: verifying || sendStatus !== 'sent' || otp.join('').length < 6
-                ? 'none' : '0 4px 20px rgba(247,147,30,0.4)',
+              boxShadow: isVerifyDisabled ? 'none'
+                : (isUpi ? '0 4px 20px rgba(108,58,247,0.4)' : '0 4px 20px rgba(247,147,30,0.4)'),
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
               transition: 'all 0.2s',
             }}
@@ -362,7 +515,7 @@ export default function JusPayOtpPage({ amount, method, cardNumber, upiId, bank,
                 <div style={{ width: 16, height: 16, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'jp-spin 0.8s linear infinite' }} />
                 Verifying OTP...
               </>
-            ) : '✓ Verify & Pay'}
+            ) : sessionExpired ? '⏱ Session Expired — Resend OTP' : '✓ Verify & Pay'}
           </button>
 
           <button onClick={onBack} style={{

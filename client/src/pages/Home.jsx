@@ -127,7 +127,7 @@ export default function Home() {
               </div>
             </div>
           )}
-          <FlightResults flights={flights} from={searchParams.from} to={searchParams.to} date={searchParams.date} returnDate={searchParams.returnDate} tripType={searchParams.tripType} loading={loading} filterPrices={filterPrices} />
+          <FlightResults flights={flights} from={searchParams.from} to={searchParams.to} date={searchParams.date} returnDate={searchParams.returnDate} tripType={searchParams.tripType} passengers={searchParams.passengers} loading={loading} filterPrices={filterPrices} />
           <div className="section-divider"></div>
         </div>
       )}
