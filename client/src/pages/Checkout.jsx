@@ -22,6 +22,8 @@ export default function Checkout() {
   const [paymentFailed, setPaymentFailed] = useState(false)
   const [paymentFailureInfo, setPaymentFailureInfo] = useState(null)
   const [ticketId, setTicketId] = useState('')
+  // screen: 'form' | 'confirmed' | 'failed'
+  const screen = confirmed ? 'confirmed' : paymentFailed ? 'failed' : 'form'
 
   const handlePhoneChange = (e) => {
     const onlyNumbers = e.target.value.replace(/\D/g, '').slice(0, 10)
@@ -226,7 +228,7 @@ export default function Checkout() {
       <section className="relative z-10" style={{ padding: '5rem 0 4rem', minHeight: '80vh' }}>
         <div className="container-main" style={{ maxWidth: 1000, margin: '0 auto' }}>
 
-          {!confirmed && !paymentFailed ? (
+          {screen === 'form' && (
             <>
               {/* Page Header */}
               <div className="mb-8">
@@ -247,7 +249,7 @@ export default function Checkout() {
                     airline: item.airline || item.name || 'SkyWay',
                     type,
                   }}
-                  passengerInfo={{ firstName, lastName, email, phone }}
+                  passengerInfo={{ firstName, lastName, email, phone, registeredPhone: user?.phone }}
                   onSuccess={handlePaymentSuccess}
                   onPaymentFailed={handlePaymentFailed}
                   onClose={() => setShowPayment(false)}
@@ -486,7 +488,7 @@ export default function Checkout() {
 
                     <div className="flex items-center gap-2 mt-4 text-xs text-text-muted justify-center">
                       <span>🔒</span>
-                      <span>256-bit SSL encrypted · Secured by Razorpay</span>
+                      <span>256-bit SSL encrypted · Secured by JusPay</span>
                     </div>
                   </div>
 
@@ -500,7 +502,9 @@ export default function Checkout() {
               </div>
               )}
             </>
-          ) : (
+          )}
+
+          {screen === 'confirmed' && (
             /*  Confirmation Page  */
             <div style={{ maxWidth: 580, margin: '4rem auto 3rem' }}>
               <div className="glass-card text-center" style={{ padding: '3.5rem 2.5rem 3rem' }}>
@@ -605,7 +609,7 @@ export default function Checkout() {
           )}
 
           {/* ── Payment Failed Screen ──────────────────────────────── */}
-          {paymentFailed && paymentFailureInfo && (
+          {screen === 'failed' && paymentFailureInfo && (
             <div className="text-center py-12 max-w-xl mx-auto">
               {/* Failed Icon */}
               <div style={{

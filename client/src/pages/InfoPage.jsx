@@ -40,7 +40,7 @@ const pages = {
       { q: 'How do I book a flight?', a: 'Enter your departure city, destination, dates, and number of passengers. Click "Search" to see available flights, then select your preferred option and complete the booking form.' },
       { q: 'Can I cancel or modify my booking?', a: 'Yes! Go to "My Trips" or "Manage Booking" and enter your ticket ID. Cancellation and modification policies vary by airline.' },
       { q: 'How do I get a refund?', a: 'Refunds are processed automatically for eligible cancellations within 5-7 business days. Check our Refunds page for detailed policies.' },
-      { q: 'Is my payment secure?', a: 'Absolutely. We use 256-bit SSL encryption and partner with Razorpay for secure payment processing. Your card details are never stored on our servers.' },
+      { q: 'Is my payment secure?', a: 'Absolutely. We use 256-bit SSL encryption and partner with JusPay for secure payment processing (PCI DSS Level 1). Your card details are never stored on our servers.' },
       { q: 'Do you charge convenience fees?', a: 'A small convenience fee of ₹299 is added to cover payment processing and customer support. This is clearly shown before you pay.' },
       { q: 'How can I contact support?', a: 'Reach us via email at support@skyway.in, call +91 1800-SKY-0000 (toll-free, 24/7), or use the live chat feature in our app.' },
     ],
@@ -59,7 +59,7 @@ const pages = {
     sections: [
       { heading: 'Data We Collect', content: 'We collect information you provide directly (name, email, phone, payment details) and automatically (device info, browsing patterns, IP address) to improve our services.' },
       { heading: 'How We Use Your Data', list: ['Process bookings and payments', 'Send booking confirmations and updates', 'Personalize search results and deals', 'Improve our platform and user experience', 'Comply with legal obligations'] },
-      { heading: 'Data Sharing', content: 'We share your information only with airlines (for ticketing), payment processors (Razorpay), and as required by law. We never sell your personal data to third parties.' },
+      { heading: 'Data Sharing', content: 'We share your information only with airlines (for ticketing), payment processors (JusPay), and as required by law. We never sell your personal data to third parties.' },
       { heading: 'Data Security', content: 'Your data is protected with 256-bit AES encryption. Payment information is processed through PCI-DSS compliant systems and never stored on our servers.' },
       { heading: 'Your Rights', content: 'You may request access to, correction, or deletion of your personal data at any time by contacting privacy@skyway.in.' },
     ],

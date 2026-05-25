@@ -150,6 +150,9 @@ export default function PaymentModal({ amount, bookingInfo, passengerInfo, onSuc
         deviceId={getDeviceId()}
         passengerInfo={{
           ...passengerInfo,
+          // registeredPhone is the user's account phone (from auth context),
+          // phone is what they typed in the checkout form
+          registeredPhone: passengerInfo?.registeredPhone || passengerInfo?.phone,
           bookingType: bookingInfo?.type,
           from: bookingInfo?.from,
           to: bookingInfo?.to,
@@ -417,10 +420,17 @@ export default function PaymentModal({ amount, bookingInfo, passengerInfo, onSuc
           </div>
         )}
 
-        {/* Security badge */}
-        <div className="flex items-center gap-2 mt-4 text-xs text-text-muted">
-          <span>🔒</span>
-          <span>256-bit SSL encrypted · Secured by JusPay · RBI Compliant</span>
+        {/* Security badge + test hint */}
+        <div style={{ marginTop: '1rem' }}>
+          <div className="flex items-center gap-2 text-xs text-text-muted">
+            <span>🔒</span>
+            <span>256-bit SSL encrypted · Secured by JusPay · RBI Compliant</span>
+          </div>
+          {/* Test mode hint */}
+          <div style={{ marginTop: '0.5rem', fontSize: '0.68rem', color: 'rgba(255,255,255,0.2)', lineHeight: 1.5 }}>
+            {method === 'card' && '🧪 Test: Card ending 0000 or 1111 = insufficient funds simulation'}
+            {method === 'upi'  && '🧪 Test: Use fail@okaxis or broke@upi to simulate insufficient funds'}
+          </div>
         </div>
 
         {error && (
