@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import JusPayOtpPage from './JusPayOtpPage'
+import RazorpayOtpPage from './RazorpayOtpPage'
 
 // ── Device ID (one OTP per device) ────────────────────────────────────────────
 function getDeviceId() {
@@ -27,6 +27,39 @@ export default function PaymentModal({ amount, bookingInfo, passengerInfo, onSuc
   const [cardName, setCardName]     = useState('')
   const [upiId, setUpiId]           = useState('')
   const [bank, setBank]             = useState('')
+  const [selectedUpiApp, setSelectedUpiApp] = useState(null)
+  const [capturedPaymentInfo, setCapturedPaymentInfo] = useState(null)
+  const [payeeConfig, setPayeeConfig] = useState({ payeeUpiId: 'skywaytravels@icici', merchantName: 'SkyWay Travels', razorpayActive: false, razorpayKeyId: null })
+
+  useEffect(() => {
+    fetch('/api/payments/config')
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          setPayeeConfig({ 
+            payeeUpiId: data.payeeUpiId, 
+            merchantName: data.merchantName,
+            razorpayActive: data.razorpayActive,
+            razorpayKeyId: data.razorpayKeyId
+          })
+        }
+      })
+      .catch(err => console.log('Error fetching payment config:', err))
+  }, [])
+
+  const loadRazorpayScript = () => {
+    return new Promise((resolve) => {
+      if (window.Razorpay) {
+        resolve(true);
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+      script.onload = () => resolve(true);
+      script.onerror = () => resolve(false);
+      document.body.appendChild(script);
+    });
+  };
 
   // UPI validation state
   const [upiValidating, setUpiValidating] = useState(false)
@@ -90,25 +123,258 @@ export default function PaymentModal({ amount, bookingInfo, passengerInfo, onSuc
       const isExpValid = /^(0[1-9]|1[0-2])\/\d{2}$/.test(expiry)
       return cardNumber.replace(/\s/g, '').length === 16 && isExpValid && cvv.length >= 3 && cardName.trim().length >= 3
     }
-    if (method === 'upi') return isUpiFormatValid(upiId) && !!upiInfo && !upiValidating
+    if (method === 'upi') {
+      if (selectedUpiApp) return true
+      return isUpiFormatValid(upiId) && !!upiInfo && !upiValidating
+    }
     if (method === 'netbanking') return bank !== ''
-    return false
+    return false;
   }
 
   // ── Step 1 → OTP: validate then go to OTP ────────────────────────────────
-  const handleProceedToOtp = () => {
-    if (!isFormValid()) {
+  const handleProceedToOtp = async () => {
+    if (!payeeConfig.razorpayActive && !isFormValid()) {
       if (method === 'card') setError('Please enter a valid 16-digit card number, valid expiry (MM/YY) and CVV.')
       else if (method === 'upi') setError(upiValidErr || 'Please enter a valid, verified UPI ID (e.g. name@okaxis).')
       else setError('Please select a bank for Net Banking.')
       return
     }
     setError('')
-    setStep('otp')
+
+    if (payeeConfig.razorpayActive) {
+      // --- REAL PAYMENTS (RAZORPAY) ---
+      const scriptLoaded = await loadRazorpayScript();
+      if (!scriptLoaded) {
+        setError('Failed to load Razorpay payment SDK. Please try again.');
+        return;
+      }
+
+      setStep('bank-processing'); // Show spinner transition
+      setBankStep(1);
+
+      try {
+        const res = await fetch('/api/payments/create-order', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            amount,
+            currency: 'INR',
+            bookingType: bookingInfo?.type,
+            from: bookingInfo?.from,
+            to: bookingInfo?.to,
+            airline: bookingInfo?.airline,
+          }),
+        });
+        const data = await res.json();
+        if (!data.success) {
+          setError(data.error || 'Failed to create transaction order');
+          setStep('details');
+          return;
+        }
+
+        // Store active payment details in sessionStorage
+        sessionStorage.setItem('skyway_active_payment', JSON.stringify({
+          orderId: data.orderId,
+          amount,
+          paymentId: 'pay_' + Math.random().toString(36).substr(2, 12).toUpperCase(),
+        }));
+
+        const options = {
+          key: data.keyId,
+          amount: data.amount,
+          currency: data.currency,
+          name: payeeConfig.merchantName || 'SkyWay Travels',
+          description: bookingInfo?.type === 'hotel' ? 'Hotel Booking' : `${bookingInfo?.from} to ${bookingInfo?.to} Flight`,
+          order_id: data.orderId,
+          handler: async function (response) {
+            setStep('bank-processing');
+            setBankStep(2);
+            try {
+              const verifyRes = await fetch('/api/payments/verify-signature', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  razorpay_order_id: response.razorpay_order_id,
+                  razorpay_payment_id: response.razorpay_payment_id,
+                  razorpay_signature: response.razorpay_signature,
+                  email: passengerInfo?.email,
+                  phone: passengerInfo?.phone,
+                  firstName: passengerInfo?.firstName,
+                  lastName: passengerInfo?.lastName || '',
+                  amount: amount,
+                  bookingType: bookingInfo?.type,
+                  from: bookingInfo?.from,
+                  to: bookingInfo?.to,
+                  airline: bookingInfo?.airline,
+                }),
+              });
+              const verifyData = await verifyRes.json();
+              if (verifyData.success) {
+                setBankStep(3);
+                setTimeout(() => {
+                  handleOtpSuccess(verifyData);
+                }, 1000);
+              } else {
+                setError('Payment verification failed.');
+                setStep('details');
+              }
+            } catch (err) {
+              console.error('Verify error:', err);
+              setError('Network error verifying payment.');
+              setStep('details');
+            }
+          },
+          prefill: {
+            name: `${passengerInfo?.firstName || ''} ${passengerInfo?.lastName || ''}`.trim(),
+            email: passengerInfo?.email || '',
+            contact: passengerInfo?.phone || '',
+          },
+          theme: {
+            color: '#7c3aed',
+          },
+          modal: {
+            ondismiss: function () {
+              sessionStorage.removeItem('skyway_active_payment');
+              setStep('details');
+            }
+          }
+        };
+
+        const rzp = new window.Razorpay(options);
+        setStep('details');
+        rzp.open();
+      } catch (err) {
+        console.error('Create order error:', err);
+        setError('Failed to initiate secure checkout order.');
+        setStep('details');
+      }
+    } else {
+      // --- SIMULATED JUSPAY CHECKOUT ---
+      setStep('otp')
+    }
+  }
+
+  const handleUpiAppSelect = async (appName) => {
+    setSelectedUpiApp(appName)
+    setError('')
+    
+    if (payeeConfig.razorpayActive) {
+      // Real mode: launch Razorpay directly
+      const scriptLoaded = await loadRazorpayScript();
+      if (!scriptLoaded) {
+        setError('Failed to load Razorpay payment SDK. Please try again.');
+        return;
+      }
+      
+      setStep('bank-processing');
+      setBankStep(1);
+      
+      try {
+        const res = await fetch('/api/payments/create-order', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            amount,
+            currency: 'INR',
+            bookingType: bookingInfo?.type,
+            from: bookingInfo?.from,
+            to: bookingInfo?.to,
+            airline: bookingInfo?.airline,
+          }),
+        });
+        const data = await res.json();
+        if (!data.success) {
+          setError(data.error || 'Failed to create transaction order');
+          setStep('details');
+          return;
+        }
+
+        // Store active payment details in sessionStorage
+        sessionStorage.setItem('skyway_active_payment', JSON.stringify({
+          orderId: data.orderId,
+          amount,
+          paymentId: 'pay_' + Math.random().toString(36).substr(2, 12).toUpperCase(),
+        }));
+
+        const options = {
+          key: data.keyId,
+          amount: data.amount,
+          currency: data.currency,
+          name: payeeConfig.merchantName || 'SkyWay Travels',
+          description: bookingInfo?.type === 'hotel' ? 'Hotel Booking' : `${bookingInfo?.from} to ${bookingInfo?.to} Flight`,
+          order_id: data.orderId,
+          prefill: {
+            name: `${passengerInfo?.firstName || ''} ${passengerInfo?.lastName || ''}`.trim(),
+            email: passengerInfo?.email || '',
+            contact: passengerInfo?.phone || '',
+          },
+          handler: async function (response) {
+            setStep('bank-processing');
+            setBankStep(2);
+            try {
+              const verifyRes = await fetch('/api/payments/verify-signature', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  razorpay_order_id: response.razorpay_order_id,
+                  razorpay_payment_id: response.razorpay_payment_id,
+                  razorpay_signature: response.razorpay_signature,
+                  email: passengerInfo?.email,
+                  phone: passengerInfo?.phone,
+                  firstName: passengerInfo?.firstName,
+                  lastName: passengerInfo?.lastName || '',
+                  amount: amount,
+                  bookingType: bookingInfo?.type,
+                  from: bookingInfo?.from,
+                  to: bookingInfo?.to,
+                  airline: bookingInfo?.airline,
+                }),
+              });
+              const verifyData = await verifyRes.json();
+              if (verifyData.success) {
+                setBankStep(3);
+                setTimeout(() => {
+                  handleOtpSuccess(verifyData);
+                }, 1000);
+              } else {
+                setError('Payment verification failed.');
+                setStep('details');
+              }
+            } catch (err) {
+              console.error('Verify error:', err);
+              setError('Network error verifying payment.');
+              setStep('details');
+            }
+          },
+          theme: {
+            color: '#7c3aed',
+          },
+          modal: {
+            ondismiss: function () {
+              sessionStorage.removeItem('skyway_active_payment');
+              setStep('details');
+              setSelectedUpiApp(null);
+            }
+          }
+        };
+
+        const rzp = new window.Razorpay(options);
+        setStep('details');
+        rzp.open();
+      } catch (err) {
+        console.error('Create order error:', err);
+        setError('Failed to initiate secure checkout order.');
+        setStep('details');
+        setSelectedUpiApp(null);
+      }
+    } else {
+      setStep('otp')
+    }
   }
 
   // ── Step 2 → OTP success → bank processing animation ─────────────────────
   const handleOtpSuccess = (paymentData) => {
+    sessionStorage.removeItem('skyway_active_payment');
     if (paymentData?.paymentStatus === 'failed') {
       // Payment failed (wrong balance / bank declined)
       setFailureInfo({
@@ -123,8 +389,9 @@ export default function PaymentModal({ amount, bookingInfo, passengerInfo, onSuc
       return
     }
     // Payment captured — show success
+    setCapturedPaymentInfo(paymentData)
     setStep('success')
-    setTimeout(() => onSuccess({ ...paymentData, method }), 1800)
+    setTimeout(() => onSuccess({ ...paymentData, method }), 3000)
   }
 
   // ── Bank processing stages ────────────────────────────────────────────────
@@ -137,15 +404,24 @@ export default function PaymentModal({ amount, bookingInfo, passengerInfo, onSuc
     }
   }, [step])
 
-  // ── OTP page (full-screen JusPay) ─────────────────────────────────────────
+  // ── OTP page (full-screen Razorpay) ───────────────────────────────────────
   if (step === 'otp') {
+    const finalUpiId = selectedUpiApp ? (selectedUpiApp === 'gpay' ? 'gpay@okaxis' : 'phonepe@ybl') : upiId;
+    const finalUpiInfo = selectedUpiApp ? {
+      bank: selectedUpiApp === 'gpay' ? 'Google Pay' : 'PhonePe',
+      bankIcon: selectedUpiApp === 'gpay' ? '📱' : '💜',
+      bankColor: selectedUpiApp === 'gpay' ? '#3c4043' : '#5f259f'
+    } : upiInfo;
+
     return (
-      <JusPayOtpPage
+      <RazorpayOtpPage
         amount={amount}
         method={method}
         cardNumber={cardNumber}
-        upiId={upiId}
-        upiInfo={upiInfo}
+        upiId={finalUpiId}
+        upiInfo={finalUpiInfo}
+        selectedUpiApp={selectedUpiApp}
+        payeeConfig={payeeConfig}
         bank={bank}
         deviceId={getDeviceId()}
         passengerInfo={{
@@ -159,7 +435,11 @@ export default function PaymentModal({ amount, bookingInfo, passengerInfo, onSuc
           airline: bookingInfo?.airline,
         }}
         onOtpSuccess={handleOtpSuccess}
-        onBack={() => setStep('details')}
+        onBack={() => {
+          sessionStorage.removeItem('skyway_active_payment');
+          setStep('details');
+          setSelectedUpiApp(null);
+        }}
       />
     )
   }
@@ -210,6 +490,41 @@ export default function PaymentModal({ amount, bookingInfo, passengerInfo, onSuc
                   {passengerInfo?.email && <> · Confirmation sent to <strong>{passengerInfo.email}</strong></>}
                   {passengerInfo?.phone && <> & +91 {passengerInfo.phone}</>}
                 </p>
+
+                {/* Floating SMS Debit Notification */}
+                {capturedPaymentInfo && (
+                  <div style={{
+                    position: 'fixed',
+                    top: '20px',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    width: '95%',
+                    maxWidth: '420px',
+                    background: 'rgba(255, 255, 255, 0.96)',
+                    color: '#1a1a1a',
+                    borderRadius: '16px',
+                    boxShadow: '0 10px 30px rgba(0,0,0,0.3)',
+                    padding: '14px 18px',
+                    zIndex: 9999,
+                    display: 'flex',
+                    alignItems: 'start',
+                    gap: '12px',
+                    textAlign: 'left',
+                    animation: 'slideDown 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+                    border: '1px solid rgba(0,0,0,0.08)'
+                  }}>
+                    <div style={{ fontSize: '24px', lineHeight: 1 }}>💬</div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                        <span style={{ fontWeight: 700, fontSize: '13px', color: '#1a1a1a' }}>Messages · Now</span>
+                        <span style={{ fontSize: '11px', color: '#6b7280' }}>skyway.in</span>
+                      </div>
+                      <div style={{ fontSize: '12.5px', lineHeight: '1.45', color: '#2d3748', fontWeight: 500 }}>
+                        Alert: ₹{capturedPaymentInfo.amount?.toLocaleString('en-IN')} debited from A/c XX{method === 'card' ? cardNumber.replace(/\s/g, '').slice(-4) : '8943'}. Avl Bal: ₹{capturedPaymentInfo.newBalance?.toLocaleString('en-IN')}. Txn: {capturedPaymentInfo.paymentId}. -{capturedPaymentInfo.bank || 'Bank'}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </>
             )}
 
@@ -251,17 +566,82 @@ export default function PaymentModal({ amount, bookingInfo, passengerInfo, onSuc
   }
 
   // ─── Step 1: Payment details form ─────────────────────────────────────────
+  if (payeeConfig.razorpayActive && step === 'details') {
+    return (
+      <div className="w-full flex justify-center py-4">
+        <div className="glass-card w-full" style={{ maxWidth: 540, padding: '2rem 2.5rem' }}>
+          <button className="text-text-muted hover:text-white mb-6 text-sm flex items-center gap-2 bg-transparent border-none cursor-pointer" onClick={onClose}>← Back to details</button>
+
+          {/* Razorpay Header */}
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center text-lg font-bold"
+              style={{ background: 'linear-gradient(135deg, #0b2d63, #3399cc)', color: '#fff', boxShadow: '0 4px 12px rgba(51,153,204,0.35)' }}>R</div>
+            <div>
+              <div className="font-syne font-bold">Razorpay · Secure Checkout</div>
+              <div className="text-xs text-text-muted">PCI-DSS Compliant · Instant Verification</div>
+            </div>
+            <div className="ml-auto font-syne text-xl font-bold text-accent">₹{amount.toLocaleString('en-IN')}</div>
+          </div>
+
+          {/* Booking Summary */}
+          <div className="mb-6 rounded-xl border border-white/10 p-4" style={{ background: 'rgba(255,255,255,0.02)' }}>
+            <h4 className="text-xs uppercase tracking-wider text-text-muted mb-3 font-bold">Booking Details</h4>
+            {bookingInfo && (
+              <div className="text-sm font-semibold mb-2 flex justify-between">
+                <span>{bookingInfo.type === 'hotel' ? '🏨 Hotel Stay' : '✈️ Flight'}</span>
+                <span className="text-white">{bookingInfo.from} → {bookingInfo.to}</span>
+              </div>
+            )}
+            {bookingInfo?.airline && (
+              <div className="text-xs text-text-muted mb-2">
+                Provider: {bookingInfo.airline}
+              </div>
+            )}
+            <div className="border-t border-white/5 my-3"></div>
+            <h4 className="text-xs uppercase tracking-wider text-text-muted mb-3 font-bold">Passenger Details</h4>
+            <div className="text-sm">
+              Name: <strong className="text-white">{passengerInfo?.firstName} {passengerInfo?.lastName || ''}</strong>
+            </div>
+            <div className="text-xs text-text-muted mt-1">
+              Contact: {passengerInfo?.email} | +91 {passengerInfo?.phone}
+            </div>
+          </div>
+
+          {error && (
+            <div className="mb-4 p-3 rounded-lg text-sm font-medium"
+              style={{ background: 'rgba(255,70,70,0.1)', color: '#ff4646', border: '1px solid rgba(255,70,70,0.3)' }}>
+              {error}
+            </div>
+          )}
+
+          <button
+            className="confirm-btn flex items-center justify-center gap-2"
+            onClick={handleProceedToOtp}
+            style={{ background: 'linear-gradient(135deg, #0b2d63, #3399cc)', boxShadow: '0 4px 20px rgba(51,153,204,0.25)', height: '48px', fontSize: '15px' }}>
+            💳 Pay Securely with Razorpay
+          </button>
+
+          <div className="flex items-center gap-2 text-xs text-text-muted justify-center mt-5">
+            <span>🔒</span>
+            <span>Secured by Razorpay · 256-bit Encryption</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── Step 1: Payment details form ─────────────────────────────────────────
   return (
     <div className="w-full flex justify-center py-4">
       <div className="glass-card w-full" style={{ maxWidth: 540, padding: '2rem 2.5rem' }}>
         <button className="text-text-muted hover:text-white mb-6 text-sm flex items-center gap-2 bg-transparent border-none cursor-pointer" onClick={onClose}>← Back to details</button>
 
-        {/* JusPay Header */}
+        {/* Razorpay Header */}
         <div className="flex items-center gap-3 mb-5">
           <div className="w-10 h-10 rounded-lg flex items-center justify-center text-lg font-bold"
-            style={{ background: 'linear-gradient(135deg, #ff6b35, #f7931e)', color: '#fff', boxShadow: '0 4px 12px rgba(255,107,53,0.35)' }}>J</div>
+            style={{ background: 'linear-gradient(135deg, #0b2d63, #3399cc)', color: '#fff', boxShadow: '0 4px 12px rgba(51,153,204,0.35)' }}>R</div>
           <div>
-            <div className="font-syne font-bold">JusPay · Secure Checkout</div>
+            <div className="font-syne font-bold">Razorpay · Secure Checkout</div>
             <div className="text-xs text-text-muted">PCI DSS Level 1 · Bank-Grade Encryption</div>
           </div>
           <div className="ml-auto font-syne text-xl font-bold text-accent">₹{amount.toLocaleString('en-IN')}</div>
@@ -327,13 +707,53 @@ export default function PaymentModal({ amount, bookingInfo, passengerInfo, onSuc
         {/* ── UPI Form with live validation ─────────────────────────────── */}
         {method === 'upi' && (
           <div>
+            {/* Express UPI Apps */}
+            <div className="mb-5">
+              <label className="text-xs text-text-muted mb-2 block">Express Checkout UPI Apps</label>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => handleUpiAppSelect('gpay')}
+                  className="flex-1 py-3 px-4 rounded-xl text-sm font-bold cursor-pointer border transition-all flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-[0.98]"
+                  style={{
+                    background: '#ffffff',
+                    borderColor: '#dadce0',
+                    color: '#3c4043',
+                    boxShadow: '0 2px 6px rgba(0,0,0,0.06)'
+                  }}
+                >
+                  <img src="https://upload.wikimedia.org/wikipedia/commons/f/f2/Google-Pay-Logo.svg" alt="Google Pay" style={{ height: 18 }} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleUpiAppSelect('phonepe')}
+                  className="flex-1 py-3 px-4 rounded-xl text-sm font-bold cursor-pointer border transition-all flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-[0.98]"
+                  style={{
+                    background: '#5f259f',
+                    borderColor: '#5f259f',
+                    color: '#ffffff',
+                    boxShadow: '0 4px 12px rgba(95,37,159,0.2)'
+                  }}
+                >
+                  <img src="https://uxwing.com/wp-content/themes/uxwing/download/brands-and-social-media/phonepe-logo-icon.png" alt="PhonePe" style={{ height: 20, filter: 'brightness(0) invert(1)', marginRight: '6px' }} />
+                  <span style={{ fontSize: 14, fontWeight: 800 }}>PhonePe</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="relative flex py-4 items-center">
+              <div className="flex-grow border-t" style={{ borderColor: 'rgba(255,255,255,0.08)' }}></div>
+              <span className="flex-shrink mx-4 text-[10px] text-text-muted uppercase tracking-wider font-bold">Or Pay Using Custom UPI ID</span>
+              <div className="flex-grow border-t" style={{ borderColor: 'rgba(255,255,255,0.08)' }}></div>
+            </div>
+
             <label className="text-xs text-text-muted mb-1 block">UPI ID</label>
             <div style={{ position: 'relative' }}>
               <input
                 type="text"
                 placeholder="yourname@okaxis"
-                value={upiId}
-                onChange={e => { setUpiId(e.target.value.replace(/[^a-zA-Z0-9.\-_@]/g, '')); setUpiInfo(null); setUpiValidErr('') }}
+                value={selectedUpiApp ? '' : upiId}
+                onChange={e => { setSelectedUpiApp(null); setUpiId(e.target.value.replace(/[^a-zA-Z0-9.\-_@]/g, '')); setUpiInfo(null); setUpiValidErr('') }}
                 className="sky-input"
                 maxLength={60}
                 style={{
@@ -424,13 +844,9 @@ export default function PaymentModal({ amount, bookingInfo, passengerInfo, onSuc
         <div style={{ marginTop: '1rem' }}>
           <div className="flex items-center gap-2 text-xs text-text-muted">
             <span>🔒</span>
-            <span>256-bit SSL encrypted · Secured by JusPay · RBI Compliant</span>
+            <span>256-bit SSL encrypted · Secured by Razorpay · RBI Compliant</span>
           </div>
-          {/* Test mode hint */}
-          <div style={{ marginTop: '0.5rem', fontSize: '0.68rem', color: 'rgba(255,255,255,0.2)', lineHeight: 1.5 }}>
-            {method === 'card' && '🧪 Test: Card ending 0000 or 1111 = insufficient funds simulation'}
-            {method === 'upi'  && '🧪 Test: Use fail@okaxis or broke@upi to simulate insufficient funds'}
-          </div>
+
         </div>
 
         {error && (
@@ -443,7 +859,7 @@ export default function PaymentModal({ amount, bookingInfo, passengerInfo, onSuc
         <button
           className="confirm-btn"
           onClick={handleProceedToOtp}
-          disabled={method === 'upi' && (upiValidating || (!upiInfo && isUpiFormatValid(upiId)))}
+          disabled={method === 'upi' && !selectedUpiApp && (upiValidating || (!upiInfo && isUpiFormatValid(upiId)))}
           style={{ marginTop: '1rem', opacity: (method === 'upi' && upiValidating) ? 0.6 : 1 }}>
           {method === 'upi' && upiValidating ? 'Verifying UPI...' : 'Continue to Bank OTP →'}
         </button>

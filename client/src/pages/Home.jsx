@@ -32,10 +32,10 @@ export default function Home() {
     }
   }, [urlFrom, urlTo, urlDate])
 
-  const handleSearch = async ({ from, to, depart, returnDate, tripType = 'one-way' }) => {
+  const handleSearch = async ({ from, to, depart, returnDate, tripType = 'one-way', passengers = '1 Adult', cabin = 'Economy' }) => {
     setShowResults(true)
     setLoading(true)
-    setSearchParams({ from, to, date: depart, returnDate, tripType })
+    setSearchParams({ from, to, date: depart, returnDate, tripType, passengers, cabin })
 
     try {
       const res = await fetch(`/api/flights?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&date=${depart}`)

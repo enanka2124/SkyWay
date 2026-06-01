@@ -2,6 +2,18 @@ const express = require('express');
 const router = express.Router();
 const nodemailer = require('nodemailer');
 const axios = require('axios');
+const Razorpay = require('razorpay');
+
+let razorpayInstance = null;
+if (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET) {
+  razorpayInstance = new Razorpay({
+    key_id: process.env.RAZORPAY_KEY_ID,
+    key_secret: process.env.RAZORPAY_KEY_SECRET,
+  });
+  console.log('💳 [PAYMENTS] Razorpay configuration found. Real gateway is active.');
+} else {
+  console.log('💳 [PAYMENTS] Razorpay configuration missing. Operating in Simulator Mode.');
+}
 
 // ════════════════════════════════════════════════════════════════════════════
 // IN-MEMORY STORES
@@ -13,6 +25,9 @@ const otpStore = new Map();
 // Device-based throttle — one active OTP per deviceId
 const deviceStore = new Map();
 
+// Order status sessions — keyed by orderId
+const orderStatusStore = new Map();
+
 // Auto-cleanup every 5 min
 setInterval(() => {
   const now = Date.now();
@@ -22,13 +37,59 @@ setInterval(() => {
   for (const [key, val] of deviceStore.entries()) {
     if (val.expiresAt < now) deviceStore.delete(key);
   }
+  for (const [key, val] of orderStatusStore.entries()) {
+    if (val.expiresAt < now) orderStatusStore.delete(key);
+  }
 }, 5 * 60 * 1000);
 
-// ── Nodemailer transporter (Gmail) ────────────────────────────────────────────
-const mailer = nodemailer.createTransport({
-  service: 'gmail',
-  auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
-});
+// ── Nodemailer transporter (Gmail → Ethereal fallback) ─────────────────────────
+// If EMAIL_USER + EMAIL_PASS are set → use Gmail (production).
+// Otherwise → auto-create a free Ethereal test account (zero-signup).
+// Ethereal captures every email and gives a preview URL in the console.
+let mailer = null;
+let isDevMailer = false; // true when using Ethereal fallback
+
+async function getMailer() {
+  if (mailer) return mailer;
+
+  // Try Gmail first
+  if (process.env.EMAIL_USER && process.env.EMAIL_PASS && process.env.EMAIL_PASS !== 'your-app-password') {
+    mailer = nodemailer.createTransport({
+      service: 'gmail',
+      auth: { user: process.env.EMAIL_USER.trim(), pass: process.env.EMAIL_PASS.replace(/\s+/g, '') },
+    });
+    try {
+      await mailer.verify();
+      console.log('✅ [MAILER] Gmail ready for:', process.env.EMAIL_USER);
+      isDevMailer = false;
+      return mailer;
+    } catch (err) {
+      console.log('⚠ Gmail auth failed:', err.message);
+      mailer = null;
+    }
+  }
+
+  // Fallback: Ethereal (free, auto-generated test account, no signup needed)
+  try {
+    const testAccount = await nodemailer.createTestAccount();
+    mailer = nodemailer.createTransport({
+      host: testAccount.smtp.host,
+      port: testAccount.smtp.port,
+      secure: testAccount.smtp.secure,
+      auth: { user: testAccount.user, pass: testAccount.pass },
+    });
+    isDevMailer = true;
+    console.log('\n📬 [MAILER] Using FREE Ethereal test account (no Gmail configured)');
+    console.log(`   📧 Ethereal inbox: https://ethereal.email/login`);
+    console.log(`   👤 User: ${testAccount.user}`);
+    console.log(`   🔑 Pass: ${testAccount.pass}\n`);
+    return mailer;
+  } catch (err) {
+    console.log('⚠ Ethereal fallback failed:', err.message);
+    isDevMailer = true;
+    return null;
+  }
+}
 
 function generateOtp() {
   return String(Math.floor(100000 + Math.random() * 900000));
@@ -190,7 +251,7 @@ async function dispatchSms(phone, message) {
 // EMAIL TEMPLATES
 // ════════════════════════════════════════════════════════════════════════════
 
-// ── OTP Email — Professional JusPay style ─────────────────────────────────────
+// ── OTP Email — Professional Razorpay style ───────────────────────────────────
 async function sendOtpEmail({ to, firstName, otp, amount, validMins = 10, from: flightFrom, dest: flightTo, airline, bookingType }) {
   if (!to) return;
 
@@ -248,7 +309,7 @@ async function sendOtpEmail({ to, firstName, otp, amount, validMins = 10, from: 
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>JusPay Payment OTP — SkyWay</title>
+  <title>Razorpay Payment OTP — SkyWay</title>
 </head>
 <body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif">
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:32px 16px">
@@ -256,20 +317,20 @@ async function sendOtpEmail({ to, firstName, otp, amount, validMins = 10, from: 
       <td align="center">
         <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%">
 
-          <!-- ── JusPay Header ── -->
+          <!-- ── Razorpay Header ── -->
           <tr>
-            <td style="background:linear-gradient(135deg,#1e1b4b 0%,#312e81 100%);border-radius:14px 14px 0 0;padding:24px 32px">
+            <td style="background:linear-gradient(135deg,#0b2d63 0%,#312e81 100%);border-radius:14px 14px 0 0;padding:24px 32px">
               <table width="100%" cellpadding="0" cellspacing="0">
                 <tr>
                   <td style="vertical-align:middle">
                     <table cellpadding="0" cellspacing="0">
                       <tr>
-                        <td style="width:46px;height:46px;background:linear-gradient(135deg,#ff6b35,#f7931e);border-radius:12px;text-align:center;vertical-align:middle">
-                          <span style="color:#fff;font-size:24px;font-weight:900;display:block;line-height:46px">J</span>
+                        <td style="width:46px;height:46px;background:linear-gradient(135deg,#0b2d63,#3399cc);border-radius:12px;text-align:center;vertical-align:middle">
+                          <span style="color:#fff;font-size:24px;font-weight:900;display:block;line-height:46px">R</span>
                         </td>
                         <td style="padding-left:14px;vertical-align:middle">
-                          <div style="color:#ffffff;font-size:17px;font-weight:700;letter-spacing:-.01em">JusPay</div>
-                          <div style="color:rgba(255,255,255,.5);font-size:11px;margin-top:1px">Secure Payment Gateway · PCI DSS Level 1</div>
+                          <div style="color:#ffffff;font-size:17px;font-weight:700;letter-spacing:-.01em">Razorpay</div>
+                          <div style="color:rgba(255,255,255,.5);font-size:11px;margin-top:1px">Secure Payment Gateway · PCI-DSS Compliant</div>
                         </td>
                       </tr>
                     </table>
@@ -346,7 +407,7 @@ async function sendOtpEmail({ to, firstName, otp, amount, validMins = 10, from: 
                     <div style="color:#991b1b;font-size:13px;font-weight:700;margin-bottom:8px">&#9888;&#65039; Security Notice</div>
                     <ul style="margin:0;padding-left:18px;color:#7f1d1d;font-size:12px;line-height:2">
                       <li>Never share this OTP with anyone, including SkyWay support</li>
-                      <li>JusPay will <strong>NEVER</strong> call, email, or SMS you to ask for this OTP</li>
+                      <li>Razorpay will <strong>NEVER</strong> call, email, or SMS you to ask for this OTP</li>
                       <li>This OTP expires automatically in ${validMins} minutes</li>
                       <li>If you didn&#39;t initiate this payment, please ignore this email</li>
                     </ul>
@@ -364,7 +425,7 @@ async function sendOtpEmail({ to, firstName, otp, amount, validMins = 10, from: 
                 <tr>
                   <td style="vertical-align:middle">
                     <div style="color:#6b7280;font-size:11px">
-                      Powered by <strong style="color:#ea580c">JusPay</strong> &middot; PCI DSS Level 1 &middot; RBI Authorised
+                      Powered by <strong style="color:#3399cc">Razorpay</strong> &middot; PCI-DSS Compliant &middot; RBI Authorised
                     </div>
                     <div style="color:#d1d5db;font-size:10px;margin-top:3px">
                       SkyWay Travel Pvt. Ltd. &middot; Automated message, do not reply
@@ -385,17 +446,29 @@ async function sendOtpEmail({ to, firstName, otp, amount, validMins = 10, from: 
 </body>
 </html>`;
 
-  await mailer.sendMail({
-    from: `"JusPay · SkyWay Payments" <${process.env.EMAIL_USER}>`,
+  const transport = await getMailer();
+  if (!transport) {
+    console.log(`⚠ No mailer available — OTP [${otp}] for ${to} logged to console only`);
+    return;
+  }
+
+  const info = await transport.sendMail({
+    from: `"Razorpay · SkyWay Payments" <${process.env.EMAIL_USER || 'otp@skyway.test'}>`,
     to,
     subject: `🔐 ${otp} is your SkyWay OTP — ₹${formattedAmount} (valid ${validMins} min)`,
     html,
   });
   console.log(`✅ OTP email sent → ${to}`);
+
+  // If using Ethereal, log the preview URL so user can view the email
+  const previewUrl = nodemailer.getTestMessageUrl(info);
+  if (previewUrl) {
+    console.log(`\n📬 VIEW OTP EMAIL HERE → ${previewUrl}\n`);
+  }
 }
 
 // ── Payment Success Confirmation Email ────────────────────────────────────────
-async function sendConfirmationEmail({ to, firstName, lastName, amount, bookingId, paymentId, method, bookingType, from, to: dest, airline, paidAt }) {
+async function sendConfirmationEmail({ to, firstName, lastName, amount, bookingId, paymentId, method, bookingType, from, to: dest, airline, paidAt, newBalance, bank }) {
   if (!to) return;
 
   const label     = bookingType === 'hotel' ? 'Hotel Reservation' : 'Flight Ticket';
@@ -519,6 +592,11 @@ async function sendConfirmationEmail({ to, firstName, lastName, amount, bookingI
                   <td style="padding:12px 20px;color:#6b7280;font-size:13px">Payment Method</td>
                   <td style="padding:12px 20px;color:#111827;font-size:13px;font-weight:600;text-align:right">${methodLabel}</td>
                 </tr>
+                ${bank ? `
+                <tr style="border-bottom:1px solid #f3f4f6">
+                  <td style="padding:12px 20px;color:#6b7280;font-size:13px">Debited From</td>
+                  <td style="padding:12px 20px;color:#111827;font-size:13px;font-weight:600;text-align:right">${bank}</td>
+                </tr>` : ''}
                 <tr style="border-bottom:1px solid #f3f4f6">
                   <td style="padding:12px 20px;color:#6b7280;font-size:13px">Transaction ID</td>
                   <td style="padding:12px 20px;color:#6b7280;font-size:12px;font-family:'Courier New',monospace;text-align:right">${paymentId}</td>
@@ -527,6 +605,11 @@ async function sendConfirmationEmail({ to, firstName, lastName, amount, bookingI
                   <td style="padding:12px 20px;color:#6b7280;font-size:13px">Date &amp; Time</td>
                   <td style="padding:12px 20px;color:#111827;font-size:13px;text-align:right">${dateStr}</td>
                 </tr>
+                ${newBalance !== undefined ? `
+                <tr style="border-bottom:1px solid #f3f4f6">
+                  <td style="padding:12px 20px;color:#6b7280;font-size:13px">Remaining Balance</td>
+                  <td style="padding:12px 20px;color:#16a34a;font-size:13.5px;font-weight:700;text-align:right">&#8377;${newBalance.toLocaleString('en-IN')}</td>
+                </tr>` : ''}
                 <tr>
                   <td style="padding:14px 20px;color:#111827;font-size:14px;font-weight:700;background:#f9fafb">Amount Paid</td>
                   <td style="padding:14px 20px;color:#ea580c;font-size:20px;font-weight:900;background:#f9fafb;text-align:right">&#8377;${formattedAmount}</td>
@@ -554,7 +637,7 @@ async function sendConfirmationEmail({ to, firstName, lastName, amount, bookingI
                 <tr>
                   <td style="vertical-align:middle">
                     <div style="color:#6b7280;font-size:11px">
-                      <strong style="color:#111827">SkyWay Travel</strong> &middot; Powered by <strong style="color:#ea580c">JusPay</strong>
+                       <strong style="color:#111827">SkyWay Travel</strong> &middot; Powered by <strong style="color:#3399cc">Razorpay</strong>
                     </div>
                     <div style="color:#d1d5db;font-size:10px;margin-top:3px">Automated message, do not reply &middot; support@skyway.in</div>
                   </td>
@@ -573,13 +656,18 @@ async function sendConfirmationEmail({ to, firstName, lastName, amount, bookingI
 </body>
 </html>`;
 
-  await mailer.sendMail({
-    from: `"SkyWay Travel" <${process.env.EMAIL_USER}>`,
+  const transport = await getMailer();
+  if (!transport) { console.log('⚠ No mailer — confirmation email skipped'); return; }
+
+  const info = await transport.sendMail({
+    from: `"SkyWay Travel" <${process.env.EMAIL_USER || 'bookings@skyway.test'}>`,
     to,
     subject: `✅ Booking Confirmed — ${bookingId} | SkyWay Travel`,
     html,
   });
   console.log(`✅ Confirmation email → ${to}`);
+  const previewUrl = nodemailer.getTestMessageUrl(info);
+  if (previewUrl) console.log(`📬 VIEW CONFIRMATION EMAIL → ${previewUrl}`);
 }
 
 // ── Payment Failure Email ──────────────────────────────────────────────────────
@@ -643,7 +731,7 @@ async function sendPaymentFailureEmail({ to, firstName, amount, reason, method }
           <tr>
             <td style="background:#f9fafb;border-top:1px solid #e5e7eb;border-radius:0 0 14px 14px;padding:16px 32px">
               <div style="color:#6b7280;font-size:11px">
-                <strong>SkyWay Travel</strong> &middot; Powered by <strong style="color:#ea580c">JusPay</strong> &middot; Automated message
+                 <strong>SkyWay Travel</strong> &middot; Powered by <strong style="color:#3399cc">Razorpay</strong> &middot; Automated message
               </div>
             </td>
           </tr>
@@ -654,13 +742,18 @@ async function sendPaymentFailureEmail({ to, firstName, amount, reason, method }
 </body>
 </html>`;
 
-  await mailer.sendMail({
-    from: `"SkyWay Travel" <${process.env.EMAIL_USER}>`,
+  const transport = await getMailer();
+  if (!transport) { console.log('⚠ No mailer — failure email skipped'); return; }
+
+  const info = await transport.sendMail({
+    from: `"SkyWay Travel" <${process.env.EMAIL_USER || 'bookings@skyway.test'}>`,
     to,
     subject: `❌ Payment Failed — ₹${formattedAmount} | SkyWay`,
     html,
   });
   console.log(`📧 Payment failure email → ${to}`);
+  const previewUrl = nodemailer.getTestMessageUrl(info);
+  if (previewUrl) console.log(`📬 VIEW FAILURE EMAIL → ${previewUrl}`);
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -724,6 +817,7 @@ router.post('/send-otp', async (req, res) => {
       return res.json({
         success: true,
         sessionId: existing.sessionId,
+        orderId: existing.orderId,
         emailSent: true,
         expiresInMinutes: existing.isUpi ? 5 : 10,
         alreadySent: true,
@@ -740,41 +834,73 @@ router.post('/send-otp', async (req, res) => {
   const expiresAt = Date.now() + expiryMs;
   const validMins = isUpi ? 5 : 10;
 
+  const orderId   = 'order_' + Math.random().toString(36).substr(2, 12).toUpperCase();
+  const paymentId = 'pay_'   + Math.random().toString(36).substr(2, 12).toUpperCase();
+  const bookingId = (bookingType === 'hotel' ? 'HTL' : 'SKY') + Math.random().toString(36).substr(2, 8).toUpperCase();
+
   otpStore.set(sessionId, {
     otp, expiresAt, attempts: 0,
-    payload: { email, phone, firstName, amount, method, bookingType, from, to, airline },
+    payload: { email, phone, firstName, amount, method, bookingType, from, to, airline, orderId, paymentId, bookingId, deviceId },
   });
 
   if (deviceId) {
-    deviceStore.set(deviceId, { sessionId, expiresAt, isUpi });
+    deviceStore.set(deviceId, { sessionId, expiresAt, isUpi, orderId });
   }
+
+  // Save initial pending state in orderStatusStore
+  const captureAt = Date.now() + 15000; // Auto-transition in 15 seconds
+  orderStatusStore.set(orderId, {
+    status: 'pending',
+    captureAt,
+    expiresAt: Date.now() + 30 * 60 * 1000, // cleanup in 30 mins
+    amount,
+    method,
+    sessionId,
+    paymentId,
+    bookingId,
+    payload: { email, phone, firstName, amount, method, bookingType, from, to, airline }
+  });
 
   // SMS text
-  const smsText = `SkyWay OTP: ${otp} for Rs.${Number(amount || 0).toLocaleString('en-IN')} payment. Valid ${validMins} min. DO NOT share. -JusPay`;
+  const smsText = `SkyWay OTP: ${otp} for Rs.${Number(amount || 0).toLocaleString('en-IN')} payment. Valid ${validMins} min. DO NOT share. -Razorpay`;
 
-  // Send both email and SMS simultaneously
-  const results = await Promise.allSettled([
-    // 1. Email — with full order details (use 'dest' alias to avoid 'to' conflict)
-    sendOtpEmail({ to: email, firstName, otp, amount, validMins, from, dest: to, airline, bookingType }),
-    // 2. SMS to the registered phone number
-    dispatchSms(phone, smsText),
-  ]);
-
-  const emailSent = results[0].status === 'fulfilled';
-  if (results[0].status === 'rejected') {
-    console.log('OTP email error:', results[0].reason?.message);
+  // Send both email and SMS simultaneously (only for non-UPI Card/Netbanking)
+  let emailSent = false;
+  if (!isUpi) {
+    const results = await Promise.allSettled([
+      // 1. Email — with full order details (use 'dest' alias to avoid 'to' conflict)
+      sendOtpEmail({ to: email, firstName, otp, amount, validMins, from, dest: to, airline, bookingType }),
+      // 2. SMS to the registered phone number
+      dispatchSms(phone, smsText),
+    ]);
+    emailSent = results[0].status === 'fulfilled';
+    if (results[0].status === 'rejected') {
+      console.log('OTP email error:', results[0].reason?.message);
+    }
+  } else {
+    // For UPI, the transaction authorization occurs inside the UPI app mockup, so no physical OTP email/SMS is sent.
+    emailSent = true;
   }
 
-  console.log(`🔐 OTP [${otp}] → session ${sessionId} | device:${deviceId || 'unknown'} | method:${method} | expires:${validMins}min | phone:+91${String(phone || '').slice(-10)} | email:${emailSent}`);
+  // Initialize mailer on first OTP request (so we know if we're in dev mode)
+  await getMailer();
+
+  console.log(`🔐 OTP [${otp}] → session ${sessionId} | order: ${orderId} | device:${deviceId || 'unknown'} | method:${method} | expires:${validMins}min | phone:+91${String(phone || '').slice(-10)} | email:${emailSent} | devMode:${isDevMailer}`);
 
   res.json({
     success: true,
     sessionId,
+    orderId,
     emailSent,
+    smsSent: false,
     expiresInMinutes: validMins,
+    // In dev mode (no Gmail), include OTP so the client can display it for testing
+    ...(isDevMailer ? { devOtp: otp, isDevMode: true } : {}),
     message: emailSent
-      ? `OTP sent to ${email}${phone ? ' and your registered phone' : ''}`
-      : 'OTP generated — check your email',
+      ? (isDevMailer
+        ? 'OTP sent to Ethereal test inbox (check server console for preview link)'
+        : `OTP sent to ${email}${phone ? ' and your registered phone' : ''}`)
+      : 'OTP generated — check server console',
   });
 });
 
@@ -792,7 +918,7 @@ router.post('/send-otp', async (req, res) => {
  * On FAILURE: sends payment failed notification email + SMS
  */
 router.post('/verify-otp', async (req, res) => {
-  const { sessionId, otp: userOtp, upiId, cardLast4 } = req.body;
+  const { sessionId, otp: userOtp, upiId, cardLast4, bank } = req.body;
 
   if (!sessionId || !userOtp) {
     return res.status(400).json({ success: false, error: 'sessionId and otp required' });
@@ -813,16 +939,26 @@ router.post('/verify-otp', async (req, res) => {
     return res.status(400).json({ success: false, error: 'Too many attempts. Please resend OTP.' });
   }
 
-  if (String(userOtp).trim() !== String(session.otp)) {
-    const left = 5 - session.attempts;
-    return res.status(400).json({
-      success: false,
-      error: `Incorrect OTP. ${left} attempt${left !== 1 ? 's' : ''} remaining.`,
-    });
+  const isUpi = (session.payload.method || '').toLowerCase() === 'upi';
+
+  if (isUpi) {
+    // For UPI, the otp input is the user's UPI PIN. We accept any valid 4 to 6 digit numerical PIN.
+    if (!/^\d{4,6}$/.test(userOtp)) {
+      return res.status(400).json({ success: false, error: 'Invalid UPI PIN. Must be 4 or 6 digits.' });
+    }
+  } else {
+    // Verify credit/debit card or netbanking OTP
+    if (String(userOtp).trim() !== String(session.otp)) {
+      const left = 5 - session.attempts;
+      return res.status(400).json({
+        success: false,
+        error: `Incorrect OTP. ${left} attempt${left !== 1 ? 's' : ''} remaining.`,
+      });
+    }
   }
 
-  // ✅ OTP correct — run balance check
-  const { email, phone, firstName, amount, method, bookingType, from, to, airline } = session.payload;
+  // ✅ OTP / UPI PIN verified — run balance check
+  const { email, phone, firstName, amount, method, bookingType, from, to, airline, orderId, paymentId, bookingId } = session.payload;
   otpStore.delete(sessionId);
 
   // Simulate realistic bank processing delay (1.5–3 sec)
@@ -830,10 +966,6 @@ router.post('/verify-otp', async (req, res) => {
 
   // ── Balance check ──────────────────────────────────────────────────────────
   const balanceCheck = simulateBalanceCheck(amount, method, upiId, cardLast4);
-
-  const orderId   = 'order_' + Math.random().toString(36).substr(2, 12).toUpperCase();
-  const paymentId = 'pay_'   + Math.random().toString(36).substr(2, 12).toUpperCase();
-  const bookingId = (bookingType === 'hotel' ? 'HTL' : 'SKY') + Math.random().toString(36).substr(2, 8).toUpperCase();
   const processedAt = new Date().toISOString();
 
   if (!balanceCheck.sufficient) {
@@ -844,6 +976,24 @@ router.post('/verify-otp', async (req, res) => {
       ? 'Your bank\'s daily transaction limit has been exceeded. Please try again tomorrow or use a different account.'
       : 'Your bank declined the transaction. Please contact your bank.';
 
+    // Update order status in store
+    const existingOrder = orderStatusStore.get(orderId);
+    if (existingOrder) {
+      existingOrder.status = 'failed';
+      existingOrder.failureCode = balanceCheck.reason;
+      existingOrder.failureReason = failureReason;
+    } else {
+      orderStatusStore.set(orderId, {
+        status: 'failed',
+        failureCode: balanceCheck.reason,
+        failureReason,
+        amount,
+        method,
+        paymentId,
+        bookingId,
+      });
+    }
+
     // Send failure notifications (background)
     Promise.allSettled([
       sendPaymentFailureEmail({ to: email, firstName, amount, reason: balanceCheck.reason, method }),
@@ -853,7 +1003,7 @@ router.post('/verify-otp', async (req, res) => {
     console.log(`❌ Payment FAILED ${paymentId} | Reason: ${balanceCheck.reason} | Balance: ₹${balanceCheck.balance} | Required: ₹${amount}`);
 
     return res.json({
-      success: true,             // OTP was correct
+      success: true,             // OTP / PIN was correct
       paymentStatus: 'failed',   // but payment itself failed
       orderId, paymentId, bookingId,
       amount, currency: 'INR',
@@ -866,16 +1016,39 @@ router.post('/verify-otp', async (req, res) => {
 
   // ── PAYMENT CAPTURED ────────────────────────────────────────────────────────
   const paidAt = processedAt;
+  const resolvedBank = bank || (upiId ? resolveUpiBank(upiId)?.bank : (cardLast4 ? 'Card Ending ' + cardLast4 : 'Bank Account'));
+  const simulatedStartBalance = balanceCheck.balance || Math.round(Number(amount) * (1.5 + Math.random()));
+  const newBalance = simulatedStartBalance - Number(amount);
+
+  // Update order status in store
+  const existingOrder = orderStatusStore.get(orderId);
+  if (existingOrder) {
+    existingOrder.status = 'captured';
+    existingOrder.paidAt = paidAt;
+    existingOrder.bank = resolvedBank;
+    existingOrder.newBalance = newBalance;
+  } else {
+    orderStatusStore.set(orderId, {
+      status: 'captured',
+      paidAt,
+      bank: resolvedBank,
+      newBalance,
+      amount,
+      method,
+      paymentId,
+      bookingId,
+    });
+  }
 
   // Send booking confirmation via ALL channels (background)
   Promise.allSettled([
-    sendConfirmationEmail({ to: email, firstName, lastName: '', amount, bookingId, paymentId, method, bookingType, from, to, airline, paidAt }),
-    dispatchSms(phone, `SkyWay Booking ${bookingId} CONFIRMED! Amount: Rs.${Number(amount).toLocaleString('en-IN')}. Txn: ${paymentId}. Have a great trip! -SkyWay`),
+    sendConfirmationEmail({ to: email, firstName, lastName: '', amount, bookingId, paymentId, method, bookingType, from, to, airline, paidAt, newBalance, bank: resolvedBank }),
+    dispatchSms(phone, `SkyWay Booking ${bookingId} CONFIRMED! Amount: Rs.${Number(amount).toLocaleString('en-IN')}. Txn: ${paymentId}. Debited from ${resolvedBank}. Have a great trip! -SkyWay`),
   ]).then(results => {
     results.forEach((r, i) => {
       if (r.status === 'rejected') console.log(`Notification ${i === 0 ? 'email' : 'SMS'} error:`, r.reason?.message);
     });
-    console.log(`✅ Payment CAPTURED ${paymentId} | Booking ${bookingId} | ₹${amount} | Balance was ₹${balanceCheck.balance}`);
+    console.log(`✅ Payment CAPTURED ${paymentId} | Booking ${bookingId} | ₹${amount} | Remaining Balance: ₹${newBalance} | Debited: ${resolvedBank}`);
   });
 
   res.json({
@@ -886,6 +1059,8 @@ router.post('/verify-otp', async (req, res) => {
     method: method || 'card',
     status: 'captured',
     paidAt,
+    newBalance,
+    bank: resolvedBank,
   });
 });
 
@@ -905,6 +1080,255 @@ router.post('/verify', (req, res) => {
   const { orderId, paymentId } = req.body;
   if (!orderId || !paymentId) return res.status(400).json({ success: false, error: 'Missing IDs' });
   res.json({ success: true, verified: true });
+});
+
+/**
+ * GET /api/payments/status/:orderId
+ * Polls status of a payment. Automatically auto-captures UPI after time elapsed.
+ */
+router.get('/status/:orderId', async (req, res) => {
+  const order = orderStatusStore.get(req.params.orderId);
+  if (!order) {
+    return res.status(404).json({ success: false, error: 'Order not found' });
+  }
+
+  // Auto-transition to captured/failed if pending and time elapsed
+  if (order.status === 'pending' && Date.now() >= order.captureAt) {
+    const { amount, method, paymentId, bookingId, payload } = order;
+    const { email, phone, firstName, bookingType, from, to, airline } = payload;
+    
+    // Simulate check
+    const upiIdToCheck = payload.upiId || 'user@upi';
+    const balanceCheck = simulateBalanceCheck(amount, method, upiIdToCheck, null);
+
+    if (!balanceCheck.sufficient) {
+      order.status = 'failed';
+      order.failureCode = balanceCheck.reason;
+      order.failureReason = balanceCheck.reason === 'insufficient_funds'
+        ? `Insufficient balance in your account. Your available balance (₹${balanceCheck.balance?.toLocaleString('en-IN') || '—'}) is less than the required amount (₹${Number(amount).toLocaleString('en-IN')}). No amount has been deducted.`
+        : 'Your bank declined the transaction. Please contact your bank.';
+
+      Promise.allSettled([
+        sendPaymentFailureEmail({ to: email, firstName, amount, reason: balanceCheck.reason, method }),
+        dispatchSms(phone, `SkyWay: Payment of Rs.${Number(amount).toLocaleString('en-IN')} FAILED. Reason: ${balanceCheck.reason === 'insufficient_funds' ? 'Insufficient funds' : 'Declined'}. No amount deducted. -SkyWay`),
+      ]).catch(() => {});
+
+      console.log(`❌ [AUTO-CAPTURE] Payment FAILED ${paymentId} | Reason: ${balanceCheck.reason} | Balance: ₹${balanceCheck.balance} | Required: ₹${amount}`);
+    } else {
+      order.status = 'captured';
+      order.paidAt = new Date().toISOString();
+      const resolvedBank = order.bank || (payload.upiId ? resolveUpiBank(payload.upiId)?.bank : 'UPI App');
+      const simulatedStartBalance = balanceCheck.balance || Math.round(Number(amount) * (1.5 + Math.random()));
+      const newBalance = simulatedStartBalance - Number(amount);
+
+      order.bank = resolvedBank;
+      order.newBalance = newBalance;
+
+      // Send confirmation (background)
+      Promise.allSettled([
+        sendConfirmationEmail({ to: email, firstName, lastName: '', amount, bookingId, paymentId, method, bookingType, from, to, airline, paidAt: order.paidAt, newBalance, bank: resolvedBank }),
+        dispatchSms(phone, `SkyWay Booking ${bookingId} CONFIRMED! Amount: Rs.${Number(amount).toLocaleString('en-IN')}. Txn: ${paymentId}. Debited from ${resolvedBank}. Have a great trip! -SkyWay`),
+      ]).then(results => {
+        results.forEach((r, i) => {
+          if (r.status === 'rejected') console.log(`Notification ${i === 0 ? 'email' : 'SMS'} error:`, r.reason?.message);
+        });
+        console.log(`✅ [AUTO-CAPTURE] Payment CAPTURED ${paymentId} | Booking ${bookingId} | ₹${amount} | Remaining Balance: ₹${newBalance} | Debited: ${resolvedBank}`);
+      });
+    }
+
+    if (order.sessionId) {
+      otpStore.delete(order.sessionId);
+    }
+  }
+
+  res.json({
+    success: true,
+    status: order.status,
+    paymentStatus: order.status,
+    orderId: req.params.orderId,
+    paymentId: order.paymentId,
+    bookingId: order.bookingId,
+    amount: order.amount,
+    method: order.method,
+    paidAt: order.paidAt,
+    newBalance: order.newBalance,
+    bank: order.bank,
+    failureReason: order.failureReason,
+    failureCode: order.failureCode,
+  });
+});
+
+/**
+ * POST /api/payments/create-order
+ * Creates a Razorpay payment order
+ */
+router.post('/create-order', async (req, res) => {
+  if (!razorpayInstance) {
+    return res.status(400).json({ success: false, error: 'Razorpay is not active' });
+  }
+
+  const { amount, currency = 'INR', bookingType, from, to, airline } = req.body;
+  if (!amount) {
+    return res.status(400).json({ success: false, error: 'Amount required' });
+  }
+
+  const amountInPaise = Math.round(Number(amount) * 100);
+  const receiptId = 'rcpt_' + Math.random().toString(36).substr(2, 12).toUpperCase();
+
+  try {
+    const order = await razorpayInstance.orders.create({
+      amount: amountInPaise,
+      currency,
+      receipt: receiptId,
+    });
+
+    const orderId = order.id;
+    const paymentId = 'pay_' + Math.random().toString(36).substr(2, 12).toUpperCase();
+    const bookingId = (bookingType === 'hotel' ? 'HTL' : 'SKY') + Math.random().toString(36).substr(2, 8).toUpperCase();
+
+    orderStatusStore.set(orderId, {
+      status: 'pending',
+      expiresAt: Date.now() + 30 * 60 * 1000,
+      amount: Number(amount),
+      method: 'razorpay',
+      paymentId,
+      bookingId,
+      payload: { amount, bookingType, from, to, airline }
+    });
+
+    res.json({
+      success: true,
+      orderId: order.id,
+      amount: order.amount,
+      currency: order.currency,
+      receipt: order.receipt,
+      keyId: process.env.RAZORPAY_KEY_ID,
+    });
+  } catch (err) {
+    console.error('Error creating Razorpay order:', err);
+    res.status(500).json({ success: false, error: 'Failed to create payment order' });
+  }
+});
+
+/**
+ * POST /api/payments/verify-signature
+ * Verifies Razorpay payment signature
+ */
+const crypto = require('crypto');
+router.post('/verify-signature', async (req, res) => {
+  const {
+    razorpay_order_id,
+    razorpay_payment_id,
+    razorpay_signature,
+    email,
+    phone,
+    firstName,
+    lastName,
+    amount,
+    bookingType,
+    from,
+    to,
+    airline
+  } = req.body;
+
+  if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+    return res.status(400).json({ success: false, error: 'Missing parameters' });
+  }
+
+  const generated_signature = crypto
+    .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+    .update(razorpay_order_id + '|' + razorpay_payment_id)
+    .digest('hex');
+
+  if (generated_signature !== razorpay_signature) {
+    return res.status(400).json({ success: false, error: 'Verification failed' });
+  }
+
+  const order = orderStatusStore.get(razorpay_order_id);
+  const bookingId = order?.bookingId || ((bookingType === 'hotel' ? 'HTL' : 'SKY') + Math.random().toString(36).substr(2, 8).toUpperCase());
+
+  const processedAt = new Date().toISOString();
+  const paidAt = processedAt;
+  const resolvedBank = 'Razorpay Gateway';
+
+  if (order) {
+    order.status = 'captured';
+    order.paidAt = paidAt;
+    order.bank = resolvedBank;
+    order.paymentId = razorpay_payment_id;
+  } else {
+    orderStatusStore.set(razorpay_order_id, {
+      status: 'captured',
+      paidAt,
+      bank: resolvedBank,
+      amount: Number(amount),
+      method: 'razorpay',
+      paymentId: razorpay_payment_id,
+      bookingId,
+    });
+  }
+
+  Promise.allSettled([
+    sendConfirmationEmail({ to: email, firstName, lastName: lastName || '', amount, bookingId, paymentId: razorpay_payment_id, method: 'razorpay', bookingType, from, to, airline, paidAt, bank: resolvedBank }),
+    dispatchSms(phone, `SkyWay Booking ${bookingId} CONFIRMED! Amount: Rs.${Number(amount).toLocaleString('en-IN')}. Txn: ${razorpay_payment_id}. Processed via Razorpay. Have a great trip! -SkyWay`),
+  ]).then(results => {
+    results.forEach((r, i) => {
+      if (r.status === 'rejected') console.log(`Notification error:`, r.reason?.message);
+    });
+  });
+
+  res.json({
+    success: true,
+    paymentStatus: 'captured',
+    orderId: razorpay_order_id,
+    paymentId: razorpay_payment_id,
+    bookingId,
+    amount,
+    currency: 'INR',
+    method: 'razorpay',
+    status: 'captured',
+    paidAt,
+    bank: resolvedBank,
+  });
+});
+
+/**
+ * POST /api/payments/cancel-order
+ * Cancels a pending order due to page refresh or user abandonment
+ */
+router.post('/cancel-order', (req, res) => {
+  const { orderId } = req.body;
+  if (!orderId) return res.status(400).json({ success: false, error: 'orderId required' });
+
+  const order = orderStatusStore.get(orderId);
+  if (order) {
+    order.status = 'failed';
+    order.failureCode = 'user_cancelled';
+    order.failureReason = 'Transaction failed. The payment page was refreshed or closed during authorization.';
+
+    // Clean up corresponding OTP session if any
+    if (order.sessionId) {
+      otpStore.delete(order.sessionId);
+    }
+    console.log(`❌ [CANCEL-ORDER] Payment CANCELLED/FAILED for order ${orderId} due to page reload`);
+    return res.json({ success: true, status: 'failed' });
+  }
+
+  res.json({ success: false, error: 'Order not found' });
+});
+
+/**
+ * GET /api/payments/config
+ * Exposes payment gateway public config (Merchant name and Payee UPI ID)
+ */
+router.get('/config', (req, res) => {
+  res.json({
+    success: true,
+    payeeUpiId: process.env.PAYEE_UPI_ID || 'skywaytravels@icici',
+    merchantName: 'SkyWay Travels',
+    razorpayActive: !!razorpayInstance,
+    razorpayKeyId: process.env.RAZORPAY_KEY_ID || null,
+  });
 });
 
 module.exports = router;

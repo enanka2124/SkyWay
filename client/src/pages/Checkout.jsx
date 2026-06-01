@@ -35,9 +35,38 @@ export default function Checkout() {
     setPassport(cleanPassport)
   }
 
-  useEffect(() => { window.scrollTo(0, 0) }, [])
+  useEffect(() => {
+    window.scrollTo(0, 0)
 
-  if (!booking) {
+    // Check if there was an active payment session before reload
+    const activePaymentStr = sessionStorage.getItem('skyway_active_payment')
+    if (activePaymentStr) {
+      try {
+        const activePayment = JSON.parse(activePaymentStr)
+        sessionStorage.removeItem('skyway_active_payment')
+        
+        if (activePayment.orderId) {
+          fetch('/api/payments/cancel-order', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ orderId: activePayment.orderId })
+          }).catch(err => console.error('Error cancelling order on reload:', err))
+        }
+
+        setPaymentFailureInfo({
+          reason: 'Transaction failed. The payment page was refreshed or closed during authorization.',
+          code: 'user_cancelled',
+          paymentId: activePayment.paymentId || 'FAIL_' + Math.random().toString(36).substr(2, 8).toUpperCase(),
+        })
+        setPaymentFailed(true)
+        setShowPayment(false)
+      } catch (e) {
+        console.error('Error handling active payment on mount:', e)
+      }
+    }
+  }, [])
+
+  if (!booking && !confirmed && !paymentFailed) {
     return (
       <>
         <Navbar />
@@ -54,14 +83,17 @@ export default function Checkout() {
     )
   }
 
-  const type = booking.type
-  const item = booking.data
+  const type = booking?.type
+  const item = booking?.data
 
-  // ── Parse passenger count from e.g. "2 Adults, 1 Child" ──────────────────
-  const parsePassengers = (str) => {
-    if (!str || typeof str !== 'string') return 1
+  // ── Parse passenger count from e.g. "2 Adults, 1 Child" or a raw number ──
+  const parsePassengers = (val) => {
+    if (!val) return 1
+    // If it's already a number (from FlightCard), use it directly
+    if (typeof val === 'number') return Math.max(1, Math.round(val))
+    if (typeof val !== 'string') return 1
     // Sum all numbers in the string: "2 Adults, 1 Child" → 3
-    const nums = str.match(/\d+/g)
+    const nums = val.match(/\d+/g)
     if (!nums) return 1
     return nums.reduce((s, n) => s + parseInt(n, 10), 0)
   }
@@ -80,7 +112,8 @@ export default function Checkout() {
 
   //  Price Calculations 
   const getFlightPricing = () => {
-    const passengerCount = parsePassengers(item.passengers || booking.passengers)
+    if (!item) return { base: 0, taxes: 0, fee: 0, discount: 0, total: 0, passengerCount: 1, pricePerPerson: 0, surchargeRate: 0, surchargePerPerson: 0 }
+    const passengerCount = parsePassengers(item.passengers || booking?.passengers)
     const pricePerPerson = item.price  // base price is always per person
 
     // Round-trip surcharge on per-person base
@@ -112,20 +145,23 @@ export default function Checkout() {
   }
 
   const getHotelPricing = () => {
-    const nights = booking.searchInfo?.nights || 1
-    const guests = booking.searchInfo?.guests || 1
-    const rooms = booking.searchInfo?.rooms || Math.ceil(guests / 2)
-    const base = item.price * nights * rooms
+    if (!item) return { base: 0, nights: 1, guests: 1, rooms: 1, perNight: 0, taxes: 0, fee: 0, discount: 0, total: 0, guestSurcharge: 0, guestMultiplier: 1 }
+    const nights = booking?.searchInfo?.nights || 1
+    const guests = booking?.searchInfo?.guests || 1
+    const rooms = booking?.searchInfo?.rooms || Math.ceil(guests / 2)
+    const guestMultiplier = booking?.searchInfo?.guestMultiplier || 1
+    const base = Math.round(item.price * nights * rooms * guestMultiplier)
     const taxes = Math.round(base * 0.12)
     const fee = 0
+    const guestSurcharge = guestMultiplier > 1 ? Math.round(item.price * nights * rooms * (guestMultiplier - 1)) : 0
     if (item.isDeal && item.discount) {
       const discountVal = Math.round((base + taxes + fee) * (item.discount / 100))
-      return { base, nights, guests, rooms, perNight: item.price, taxes, fee, discount: discountVal, total: (base + taxes + fee) - discountVal }
+      return { base, nights, guests, rooms, perNight: item.price, taxes, fee, discount: discountVal, total: (base + taxes + fee) - discountVal, guestSurcharge, guestMultiplier }
     }
-    return { base, nights, guests, rooms, perNight: item.price, taxes, fee, discount: 0, total: base + taxes + fee }
+    return { base, nights, guests, rooms, perNight: item.price, taxes, fee, discount: 0, total: base + taxes + fee, guestSurcharge, guestMultiplier }
   }
 
-  const pricing = type === 'flight' || type === 'deal' ? getFlightPricing() : getHotelPricing()
+  const pricing = booking ? (type === 'flight' || type === 'deal' ? getFlightPricing() : getHotelPricing()) : { total: 0 }
 
   const handleProceed = () => {
     if (!firstName.trim() || !lastName.trim() || !email.trim()) {
@@ -136,6 +172,7 @@ export default function Checkout() {
   }
 
   const handlePaymentSuccess = async (paymentData) => {
+    sessionStorage.removeItem('skyway_active_payment')
     setShowPayment(false)
     const id = paymentData?.bookingId || (
       type === 'hotel'
@@ -153,8 +190,8 @@ export default function Checkout() {
       ticketId: id,
       flight: type !== 'hotel' ? item : undefined,
       hotel: type === 'hotel' ? item : undefined,
-      checkin: booking.searchInfo?.checkin,
-      checkout: booking.searchInfo?.checkout,
+      checkin: booking?.searchInfo?.checkin,
+      checkout: booking?.searchInfo?.checkout,
       pricing: { ...pricing },
       passenger: { firstName, lastName, email, phone },
       paymentId: paymentData?.paymentId,
@@ -189,6 +226,7 @@ export default function Checkout() {
   }
 
   const handlePaymentFailed = async (paymentData) => {
+    sessionStorage.removeItem('skyway_active_payment')
     setShowPayment(false)
     const failedId = paymentData?.paymentId || 'FAIL_' + Math.random().toString(36).substr(2, 8).toUpperCase()
 
@@ -200,8 +238,8 @@ export default function Checkout() {
       ticketId: failedId,
       flight: type !== 'hotel' ? item : undefined,
       hotel: type === 'hotel' ? item : undefined,
-      checkin: booking.searchInfo?.checkin,
-      checkout: booking.searchInfo?.checkout,
+      checkin: booking?.searchInfo?.checkin,
+      checkout: booking?.searchInfo?.checkout,
       pricing: { ...pricing },
       passenger: { firstName, lastName, email, phone },
       paymentId: failedId,
@@ -244,15 +282,18 @@ export default function Checkout() {
                 <PaymentModal
                   amount={pricing.total}
                   bookingInfo={{
-                    from: item.from || item.title?.split('→')[0]?.trim() || item.city,
-                    to: item.to || item.title?.split('→')[1]?.trim() || '',
-                    airline: item.airline || item.name || 'SkyWay',
+                    from: item?.from || item?.title?.split('→')[0]?.trim() || item?.city || '',
+                    to: item?.to || item?.title?.split('→')[1]?.trim() || '',
+                    airline: item?.airline || item?.name || 'SkyWay',
                     type,
                   }}
                   passengerInfo={{ firstName, lastName, email, phone, registeredPhone: user?.phone }}
                   onSuccess={handlePaymentSuccess}
                   onPaymentFailed={handlePaymentFailed}
-                  onClose={() => setShowPayment(false)}
+                  onClose={() => {
+                    sessionStorage.removeItem('skyway_active_payment')
+                    setShowPayment(false)
+                  }}
                 />
               ) : (
                 <div className="checkout-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: '2rem', alignItems: 'start' }}>
@@ -301,6 +342,16 @@ export default function Checkout() {
                         <div className="flex flex-wrap gap-3 text-sm text-text-muted">
                           {item.airline && <span>🛫 {item.airline} · {item.code}</span>}
                           {item.stops && <span className={`text-xs px-2 py-0.5 rounded font-medium ${item.stops === 'Direct' ? 'badge-direct' : 'badge-stop'}`}>{item.stops}</span>}
+                          {pricing.passengerCount > 0 && (
+                            <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold" style={{ background: 'rgba(96,165,250,0.12)', color: '#60a5fa', border: '1px solid rgba(96,165,250,0.25)' }}>
+                              👥 {pricing.passengerCount} Passenger{pricing.passengerCount > 1 ? 's' : ''}
+                            </span>
+                          )}
+                          {item.tripType === 'round' && (
+                            <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold" style={{ background: 'rgba(245,166,35,0.12)', color: '#f5a623', border: '1px solid rgba(245,166,35,0.25)' }}>
+                              🔄 Round Trip
+                            </span>
+                          )}
                           {item.baggage && <span>🧳 {item.baggage}</span>}
                           {item.meal && <span>🍽 {item.meal}</span>}
                           {item.category && <span>📁 {item.category}</span>}
@@ -469,7 +520,13 @@ export default function Checkout() {
 
                     {type === 'hotel' && (
                       <div className="flex flex-col gap-2.5">
-                        <div className="price-line"><span>₹{pricing.perNight.toLocaleString('en-IN')} × {pricing.nights} night{pricing.nights > 1 ? 's' : ''} × {pricing.rooms} room{pricing.rooms > 1 ? 's' : ''}</span><span>₹{pricing.base.toLocaleString('en-IN')}</span></div>
+                        <div className="price-line"><span>₹{pricing.perNight.toLocaleString('en-IN')} × {pricing.nights} night{pricing.nights > 1 ? 's' : ''} × {pricing.rooms} room{pricing.rooms > 1 ? 's' : ''}</span><span>₹{(pricing.perNight * pricing.nights * pricing.rooms).toLocaleString('en-IN')}</span></div>
+                        {pricing.guestSurcharge > 0 && (
+                          <div className="price-line" style={{ fontSize: '0.8rem', color: 'rgba(245,166,35,0.85)' }}>
+                            <span>Guest surcharge ({pricing.guests} guests, {Math.round((pricing.guestMultiplier - 1) * 100)}% extra)</span>
+                            <span>+₹{pricing.guestSurcharge.toLocaleString('en-IN')}</span>
+                          </div>
+                        )}
                         <div className="price-line"><span>Taxes & fees</span><span>₹{pricing.taxes.toLocaleString('en-IN')}</span></div>
                         {pricing.discount > 0 && (
                           <div className="price-line font-bold" style={{ color: '#22d07a' }}>
@@ -658,12 +715,14 @@ export default function Checkout() {
               </div>
 
               <div className="flex gap-4 justify-center flex-wrap">
-                <button
-                  className="btn-accent px-8 py-3"
-                  onClick={() => { setPaymentFailed(false); setPaymentFailureInfo(null); setShowPayment(true) }}
-                >
-                  Try Again
-                </button>
+                {booking && (
+                  <button
+                    className="btn-accent px-8 py-3"
+                    onClick={() => { setPaymentFailed(false); setPaymentFailureInfo(null); setShowPayment(true) }}
+                  >
+                    Try Again
+                  </button>
+                )}
                 <Link to="/" className="btn-ghost no-underline px-8 py-3">Go Home</Link>
               </div>
             </div>

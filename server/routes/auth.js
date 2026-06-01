@@ -197,10 +197,10 @@ router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
     if (!email || !password) {
-      return res.status(400).json({ success: false, error: 'Credentials required' });
+      return res.status(400).json({ success: false, error: 'Email and password are required' });
     }
 
-    const user = await User.findOne({ email, deletedAt: null });
+    const user = await User.findOne({ email: email.toLowerCase().trim(), deletedAt: null });
     if (!user) {
       return res.status(401).json({ success: false, error: 'Invalid email or password' });
     }
@@ -211,17 +211,25 @@ router.post('/login', async (req, res) => {
     }
 
     const authResponse = {
-      _id: user._id,
+      _id:       user._id,
       firstName: user.firstName,
-      lastName: user.lastName,
-      email: user.email,
-      phone: user.phone,
+      lastName:  user.lastName,
+      email:     user.email,
+      phone:     user.phone,
     };
-    res.json({ success: true, message: 'Logged in successfully', user: authResponse });
+    return res.json({ success: true, message: 'Logged in successfully', user: authResponse });
+
   } catch (error) {
-    res.status(500).json({ success: false, error: 'Authentication service unavailable' });
+    // Distinguish between DB-down and other errors for a clearer user message
+    const isDbError = /buffering timed out|topology was destroyed|not connected|ECONNREFUSED|MongoNetworkError/i.test(error?.message || '');
+    const msg = isDbError
+      ? 'Service temporarily unavailable. Please try again in a moment.'
+      : 'Authentication failed. Please try again.';
+    console.error('[AUTH/login]', error?.message);
+    return res.status(503).json({ success: false, error: msg });
   }
 });
+
 
 router.post('/forgot-password', async (req, res) => {
   try {

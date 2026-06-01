@@ -13,10 +13,45 @@ const hotelBookings = [];
 // Mock hotel generator — realistic Indian + international hotel data
 // Returns a full set of hotels for any city when the external API is down.
 // ---------------------------------------------------------------------------
-const HOTEL_NAMES = {
-  prefixes: ['The', 'Grand', 'Royal', 'Luxury', 'Premium', 'Elite', 'Majestic', 'Serene', 'Heritage', 'Boutique'],
-  suffixes: ['Palace', 'Suites', 'Residency', 'Inn', 'Hotel', 'Resort', 'Stay', 'Retreat', 'Towers', 'Plaza'],
+// City-specific hotel name banks — each city gets its OWN unique names
+const CITY_HOTEL_BANKS = {
+  mumbai:    ['Sea View Grand', 'Bandra Boutique', 'Marine Drive Suites', 'Juhu Beach Resort', 'Gateway Towers', 'Colaba Heritage Inn', 'Nariman Residency', 'Andheri Business Hotel', 'Powai Lake Retreat', 'Worli Skyline Hotel', 'Taj Mahal Heights', 'Lower Parel Loft', 'Versova Sands', 'Kurla Connect Inn', 'Chembur Royal'],
+  goa:       ['Calangute Palms', 'Baga Beach Resort', 'Anjuna Cove Inn', 'Panjim Heritage', 'Dona Paula Suites', 'Vagator Cliffs Hotel', 'Arambol Sunrise', 'Candolim Retreat', 'Colva Sands Hotel', 'Majorda Shores', 'Morjim Nest', 'Chapora Fort Inn', 'Mandrem Pearl', 'Siolim Riverside', 'Old Goa Villas'],
+  delhi:     ['Connaught Place Suites', 'Hauz Khas Village Inn', 'Lodi Garden Retreat', 'Karol Bagh Hotel', 'Aerocity Gateway', 'CP Heritage Residency', 'South Ex Towers', 'Janpath Grand', 'Paharganj Budget Palace', 'Chanakyapuri Diplomat', 'Safdarjung Boutique', 'Vasant Vihar Suites', 'Mehrauli Heritage Stay', 'Saket Premium Inn', 'Dilli Haat Hotel'],
+  bangalore: ['Indiranagar Loft', 'Koramangala Suites', 'MG Road Grand', 'Whitefield Tech Hotel', 'Electronic City Inn', 'Cubbon Park Retreat', 'UB City Towers', 'Jayanagar Heritage', 'JP Nagar Residency', 'Sarjapur Boutique', 'Marathahalli Express', 'HSR Layout Hotel', 'Bannerghatta Resort', 'Rajajinagar Classic', 'Malleswaram Plaza'],
+  chennai:   ['Marina Sands', 'Adyar Residency', 'T Nagar Grand', 'Besant Nagar Retreat', 'ECR Beach Resort', 'Anna Salai Suites', 'Nungambakkam Towers', 'Mylapore Heritage Inn', 'OMR Tech Hotel', 'Velachery Comforts', 'Guindy Express', 'Porur Boutique', 'Tambaram Inn', 'Alwarpet Elite', 'Perungudi Stay'],
+  dubai:     ['Burj View Suites', 'JBR Beach Hotel', 'Downtown Dubai Grand', 'Dubai Marina Towers', 'Deira Heritage Inn', 'Palm Atlantis Retreat', 'DIFC Business Hotel', 'Gold Souk Residency', 'Dubai Creek Resort', 'Jumeirah Sands', 'Business Bay Elite', 'Al Barsha Boutique', 'Karama Budget Inn', 'Silicon Oasis Hotel', 'Satwa Classic'],
+  jaipur:    ['Pink City Palace', 'Amer Fort Inn', 'Hawa Mahal Suites', 'Nahargarh Retreat', 'C-Scheme Grand', 'Johari Bazaar Hotel', 'Bani Park Heritage', 'Malviya Nagar Boutique', 'Vaishali Nagar Residency', 'Civil Lines Towers', 'MI Road Classic', 'Sodala Comforts', 'Sanganer Resort', 'Gandhinagar Inn', 'Raja Park Stay'],
+  kolkata:   ['Park Street Suites', 'Howrah Bridge Inn', 'Esplanade Grand', 'Salt Lake Towers', 'New Town Boutique', 'Ballygunge Residency', 'Gariahat Heritage', 'Tollygunge Retreat', 'Alipore Elite Hotel', 'Jadavpur Classic', 'Dum Dum Airport Inn', 'Rajarhat Tech Hotel', 'Behala Budget Stay', 'Golpark Comforts', 'Rashbehari Express'],
+  hyderabad: ['HITEC City Suites', 'Banjara Hills Grand', 'Jubilee Hills Retreat', 'Charminar Heritage Inn', 'Gachibowli Tech Hotel', 'Secunderabad Residency', 'Begumpet Boutique', 'Kondapur Towers', 'Madhapur Classic', 'Dilsukhnagar Express', 'Kukatpally Business Inn', 'Ameerpet Comforts', 'SR Nagar Stay', 'Uppal Budget Hotel', 'Mehdipatnam Heritage'],
+  udaipur:   ['Lake Pichola Suites', 'City Palace Inn', 'Fateh Sagar Resort', 'Sajjangarh Retreat', 'Ambrai Ghat Heritage', 'Bagore Ki Haveli Hotel', 'Shilpgram Boutique', 'Chetak Circle Grand', 'Sukhadia Circle Inn', 'Bhuwana Countryside', 'Badi Lake Villas', 'Hiran Magri Residency', 'Saheliyon Ki Bari Stay', 'Jagmandir Island Hotel', 'Gangaur Ghat Retreat'],
+  kerala:    ['Backwaters Houseboat', 'Munnar Tea Estate', 'Alleppey Palms Resort', 'Kovalam Beach Inn', 'Thekkady Spice Hotel', 'Kumarakom Lake Retreat', 'Wayanad Forest Lodge', 'Varkala Cliff Suites', 'Fort Kochi Heritage', 'Thrissur Grand Hotel', 'Calicut Beachfront', 'Trivandrum Residency', 'Kozhikode Classic', 'Alappuzha Boathouse', 'Palakkad Nature Inn'],
+  manali:    ['Snow Peak Cottages', 'Beas River Resort', 'Mall Road Inn', 'Vashisht Hot Springs', 'Solang Valley Lodge', 'Rohtang View Hotel', 'Old Manali Boutique', 'Hadimba Forest Retreat', 'Kullu Riverside Inn', 'Club House Suites', 'Prini Hillside Hotel', 'Nehru Kund Comforts', 'Aleo Village Stay', 'Dhungri Eco Lodge', 'Jagatsukh Heritage'],
+  singapore: ['Marina Bay Suites', 'Orchard Road Grand', 'Sentosa Island Resort', 'Chinatown Heritage Inn', 'Clarke Quay Hotel', 'Little India Boutique', 'Bugis Street Towers', 'Jurong Lake Retreat', 'Changi Airport Inn', 'Raffles Place Elite', 'Tanjong Pagar Hotel', 'Queenstown Residency', 'Tampines Classic', 'Woodlands Express', 'Ang Mo Kio Inn'],
+  bangkok:   ['Sukhumvit Suites', 'Silom Grand Hotel', 'Khao San Retreat', 'Riverside Bangkok', 'Asok Business Inn', 'Chatuchak Boutique', 'Pratunam Towers', 'Siam Square Hotel', 'Lumpini Park Suites', 'On Nut Classic', 'Nana Heritage Inn', 'Thonglor Elite', 'Ekkamai Residency', 'Victory Monument Hotel', 'Mo Chit Express'],
+  london:    ['Mayfair Classic', 'Covent Garden Inn', 'Kensington Suites', 'Shoreditch Boutique', 'Canary Wharf Towers', 'Hyde Park Retreat', 'Camden Heritage Hotel', 'Soho Grand', 'Westminster Residency', 'Notting Hill Inn', 'Greenwich Riverside', 'Brixton Boutique', 'Angel Classic Stay', 'Fitzrovia Suites', 'Bloomsbury Heritage'],
+  paris:     ['Montmartre Boutique', 'Marais Heritage Inn', 'Eiffel View Suites', 'Champs-Elysées Grand', 'Saint-Germain Hotel', 'Opera Quarter Inn', 'Bastille Retreat', 'Pigalle Classic', 'Louvre Side Suites', 'République Towers', 'Belleville Boutique', 'Nation Residency', 'Oberkampf Express', 'Vincennes Forest Inn', 'Bercy Village Hotel'],
+  'new york': ['Times Square Inn', 'Brooklyn Heights Hotel', 'Midtown Grand Suites', 'SoHo Boutique', 'Upper East Side Classic', 'Harlem Heritage Inn', 'Financial District Towers', 'Chelsea Art Hotel', 'Greenwich Village Retreat', 'Queens Express Inn', 'Bronx Residency', 'Staten Island Suites', 'Hell\'s Kitchen Hotel', 'Tribeca Loft', 'Williamsburg Boutique'],
+  tokyo:     ['Shinjuku Suites', 'Shibuya Boutique', 'Asakusa Heritage Inn', 'Akihabara Tech Hotel', 'Ginza Grand', 'Harajuku Style Inn', 'Ueno Park Retreat', 'Roppongi Towers', 'Ikebukuro Express', 'Odaiba Bay Hotel', 'Kabukicho Classic', 'Yanaka Heritage', 'Nakameguro Suites', 'Koenji Boutique', 'Shimokitazawa Inn'],
+  bali:      ['Seminyak Villas', 'Ubud Jungle Retreat', 'Kuta Beach Resort', 'Nusa Dua Grand', 'Canggu Boutique', 'Uluwatu Cliff Hotel', 'Sanur Heritage Inn', 'Denpasar Classic', 'Legian Beachfront', 'Jimbaran Bay Suites', 'Lovina Beach Resort', 'Munduk Mountain Lodge', 'Amed Dive Inn', 'Pemuteran Eco Resort', 'Gianyar Rice Field Hotel'],
 };
+
+// Seeded pseudo-random number generator (Mulberry32)
+// Returns consistent values for the same city — so hotels don't change on every refresh
+function seedRandom(seed) {
+  let s = seed;
+  return function () {
+    s |= 0; s = s + 0x6D2B79F5 | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = t + Math.imul(t ^ (t >>> 7), 61 | t) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function cityToSeed(city) {
+  // Convert city name to a numeric seed so the same city always produces the same hotels
+  return city.toLowerCase().split('').reduce((acc, ch) => acc * 31 + ch.charCodeAt(0), 0) >>> 0;
+}
 
 const AMENITIES_POOL = [
   'Free WiFi', 'Air Conditioning', 'Room Service', 'Swimming Pool', 'Spa & Wellness',
@@ -75,39 +110,45 @@ function getRandomAmenities(count = 6) {
 
 function buildMockHotels(city, count = 15) {
   const cityKey = city.toLowerCase();
-  const images = CITY_IMAGES[cityKey] || CITY_IMAGES['default'];
+  const images   = CITY_IMAGES[cityKey] || CITY_IMAGES['default'];
   const { min, max } = getBasePriceRange(city);
+
+  // Use seeded RNG — same city always returns the SAME hotels, different cities differ
+  const rand  = seedRandom(cityToSeed(city));
+  const names = CITY_HOTEL_BANKS[cityKey] || [];
   const hotels = [];
 
   for (let i = 0; i < count; i++) {
-    const stars = Math.floor(Math.random() * 3) + 3; // 3–5 stars
-    const prefix = HOTEL_NAMES.prefixes[i % HOTEL_NAMES.prefixes.length];
-    const suffix = HOTEL_NAMES.suffixes[Math.floor(Math.random() * HOTEL_NAMES.suffixes.length)];
-    const name = `${prefix} ${city} ${suffix}`;
+    const stars = Math.floor(rand() * 3) + 3; // 3–5 stars, consistent per city
 
-    // 5-star hotels cost more
+    // Use city-specific name if available, otherwise build a unique generic one
+    const name = names[i]
+      ? names[i]
+      : `Hotel ${city} ${String.fromCharCode(65 + i)}`; // e.g. "Hotel Pune A"
+
+    // 5-star hotels cost more — prices are stable per city
     const starMultiplier = stars === 5 ? 1.6 : stars === 4 ? 1.2 : 1.0;
-    const price = Math.floor((min + Math.random() * (max - min)) * starMultiplier);
+    const price = Math.floor((min + rand() * (max - min)) * starMultiplier);
 
-    const rating = parseFloat((3.5 + Math.random() * 1.5).toFixed(1)); // 3.5–5.0
-    const reviews = Math.floor(Math.random() * 2000) + 100;
-    const image = images[i % images.length];
+    const rating  = parseFloat((3.5 + rand() * 1.5).toFixed(1)); // 3.5–5.0
+    const reviews = Math.floor(rand() * 2000) + 100;
+    const image   = images[i % images.length];
 
     hotels.push({
-      id: i + 1,
+      id:        `${cityKey}-${i + 1}`,  // unique ID per city
       name,
       city,
       stars,
       price,
       image,
-      amenities: getRandomAmenities(Math.floor(Math.random() * 4) + 4), // 4–7 amenities
+      amenities: getRandomAmenities(Math.floor(rand() * 4) + 4), // 4–7 amenities
       rating,
       reviews,
     });
   }
 
-  // Sort by rating descending (best hotels first)
-  return hotels.sort((a, b) => b.rating - a.rating);
+  // Sort by price ASCENDING — cheapest first as the user expects
+  return hotels.sort((a, b) => a.price - b.price);
 }
 
 // GET /api/hotels?city=&checkin=&checkout=&guests=

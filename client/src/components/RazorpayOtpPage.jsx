@@ -7,9 +7,10 @@ import { useState, useEffect, useRef } from 'react'
  *  - UPI payments: 5-min countdown timer; Card/NetBanking: 10-min countdown
  *  - OTP is sent to both email AND the user's registered phone number
  */
-export default function JusPayOtpPage({ amount, method, cardNumber, upiId, upiInfo, bank, deviceId, passengerInfo, onOtpSuccess, onBack }) {
+export default function RazorpayOtpPage({ amount, method, cardNumber, upiId, upiInfo, selectedUpiApp, payeeConfig, bank, deviceId, passengerInfo, onOtpSuccess, onBack }) {
   const [otp, setOtp] = useState(['', '', '', '', '', ''])
   const [sessionId, setSessionId] = useState(null)
+  const [orderId, setOrderId] = useState(null)
   const [sendStatus, setSendStatus] = useState('sending')
   const [deliveryInfo, setDeliveryInfo] = useState({ email: false, sms: false })
   const [resendTimer, setResendTimer] = useState(30)
@@ -21,7 +22,77 @@ export default function JusPayOtpPage({ amount, method, cardNumber, upiId, upiIn
   const [expiresInMins, setExpiresInMins] = useState(null)
   const [sessionSecondsLeft, setSessionSecondsLeft] = useState(null)
   const [alreadySent, setAlreadySent] = useState(false)
+  const [devOtp, setDevOtp] = useState(null)
   const inputRefs = useRef([])
+
+  const [subStep, setSubStep] = useState(
+    method === 'upi'
+      ? 'upi-waiting'
+      : method === 'netbanking'
+        ? 'nb-login'
+        : 'card-otp'
+  )
+  const [upiPin, setUpiPin] = useState([])
+  const [nbUser, setNbUser] = useState('')
+  const [nbPass, setNbPass] = useState('')
+  const [showPhoneNotification, setShowPhoneNotification] = useState(false)
+
+  // QR Code Timer (5 minutes)
+  const [qrSecondsLeft, setQrSecondsLeft] = useState(300)
+  const [qrExpired, setQrExpired] = useState(false)
+
+  const activePayeeUpi = payeeConfig?.payeeUpiId || 'skywaytravels@icici';
+  const activeMerchantName = payeeConfig?.merchantName || 'SkyWay Travels';
+
+  useEffect(() => {
+    if (subStep === 'upi-waiting') {
+      if (qrSecondsLeft <= 0) {
+        setQrExpired(true)
+        return
+      }
+      const t = setTimeout(() => setQrSecondsLeft(s => s - 1), 1000)
+      return () => clearTimeout(t)
+    }
+  }, [qrSecondsLeft, subStep])
+
+  // Polling for payment status (UPI QR checkout)
+  useEffect(() => {
+    if (subStep === 'upi-waiting' && orderId && !qrExpired && !verifying && !bankProcessing) {
+      const pollInterval = setInterval(async () => {
+        try {
+          const res = await fetch(`/api/payments/status/${orderId}`);
+          const data = await res.json();
+          if (data.success) {
+            if (data.status === 'captured') {
+              clearInterval(pollInterval);
+              setBankProcessing(true);
+              setTimeout(() => {
+                setBankProcessing(false);
+                onOtpSuccess(data);
+              }, 2200);
+            } else if (data.status === 'failed') {
+              clearInterval(pollInterval);
+              setOtpError(data.failureReason || 'Payment failed.');
+            }
+          }
+        } catch (err) {
+          console.error('Polling error:', err);
+        }
+      }, 2500);
+
+      return () => clearInterval(pollInterval);
+    }
+  }, [subStep, orderId, qrExpired, verifying, bankProcessing, onOtpSuccess]);
+
+  // Trigger lockscreen notification drawer for Custom UPI ID
+  useEffect(() => {
+    if (method === 'upi' && !selectedUpiApp && subStep === 'upi-waiting') {
+      const timer = setTimeout(() => {
+        setShowPhoneNotification(true)
+      }, 2500)
+      return () => clearTimeout(timer)
+    }
+  }, [method, selectedUpiApp, subStep])
 
   const isUpi = (method || '').toLowerCase() === 'upi'
 
@@ -35,6 +106,7 @@ export default function JusPayOtpPage({ amount, method, cardNumber, upiId, upiIn
     setSessionExpired(false)
     setSessionSecondsLeft(null)
     setAlreadySent(false)
+    setDevOtp(null)
 
     try {
       const res = await fetch('/api/payments/send-otp', {
@@ -57,13 +129,29 @@ export default function JusPayOtpPage({ amount, method, cardNumber, upiId, upiIn
       const data = await res.json()
       if (data.success) {
         setSessionId(data.sessionId)
+        if (data.orderId) {
+          setOrderId(data.orderId)
+          sessionStorage.setItem('skyway_active_payment', JSON.stringify({
+            orderId: data.orderId,
+            amount,
+            paymentId: 'pay_' + Math.random().toString(36).substr(2, 12).toUpperCase(),
+          }));
+        }
         setDeliveryInfo({ email: data.emailSent, sms: data.smsSent })
         setSendStatus('sent')
         if (data.alreadySent) setAlreadySent(true)
         const validMins = data.expiresInMinutes || (isUpi ? 5 : 10)
         setExpiresInMins(validMins)
         setSessionSecondsLeft(validMins * 60)
-        setTimeout(() => inputRefs.current[0]?.focus(), 100)
+        // Dev mode: auto-fill OTP if server sent it (no Gmail configured)
+        if (data.devOtp) {
+          setDevOtp(data.devOtp)
+          const digits = String(data.devOtp).split('')
+          setOtp(digits)
+          setTimeout(() => inputRefs.current[5]?.focus(), 150)
+        } else {
+          setTimeout(() => inputRefs.current[0]?.focus(), 100)
+        }
       } else {
         setSendStatus('error')
       }
@@ -131,10 +219,19 @@ export default function JusPayOtpPage({ amount, method, cardNumber, upiId, upiIn
     }
   }
 
-  // ── Verify OTP ─────────────────────────────────────────────────────────────
-  const handleVerify = async () => {
-    const otpStr = otp.join('')
-    if (otpStr.length < 6) { setOtpError('Please enter the complete 6-digit OTP.'); return }
+  // ── Verify OTP / UPI PIN ───────────────────────────────────────────────────
+  const handleVerify = async (customOtp) => {
+    const isUpiVal = method === 'upi'
+    const otpStr = customOtp || (isUpiVal ? upiPin.join('') : otp.join(''))
+    
+    if (isUpiVal && otpStr.length < 4) {
+      setOtpError('Please enter your 4 or 6 digit UPI PIN.');
+      return;
+    }
+    if (!isUpiVal && otpStr.length < 6) {
+      setOtpError('Please enter the complete 6-digit OTP.');
+      return;
+    }
     if (!sessionId) { setOtpError('Session expired. Please resend OTP.'); return }
     if (sessionExpired) { setOtpError('Session expired. Please resend OTP.'); return }
 
@@ -147,8 +244,9 @@ export default function JusPayOtpPage({ amount, method, cardNumber, upiId, upiIn
         body: JSON.stringify({
           sessionId,
           otp: otpStr,
-          upiId: upiId || undefined,
+          upiId: isUpiVal ? upiId : undefined,
           cardLast4: cardNumber ? cardNumber.replace(/\s/g, '').slice(-4) : undefined,
+          bank: method === 'netbanking' ? bank : (isUpiVal ? upiInfo?.bank : undefined),
         }),
       })
       const data = await res.json()
@@ -158,12 +256,16 @@ export default function JusPayOtpPage({ amount, method, cardNumber, upiId, upiIn
         setTimeout(() => {
           setBankProcessing(false)
           onOtpSuccess(data) // data.paymentStatus: 'captured' | 'failed'
-        }, 2000)
+        }, 2200)
       } else {
-        setOtpError(data.error || 'Incorrect OTP. Please try again.')
+        setOtpError(data.error || 'Incorrect code. Please try again.')
         setVerifying(false)
-        setOtp(['', '', '', '', '', ''])
-        setTimeout(() => inputRefs.current[0]?.focus(), 50)
+        if (isUpiVal) {
+          setUpiPin([])
+        } else {
+          setOtp(['', '', '', '', '', ''])
+          setTimeout(() => inputRefs.current[0]?.focus(), 50)
+        }
       }
     } catch {
       setOtpError('Network error. Please check your connection and try again.')
@@ -196,6 +298,21 @@ export default function JusPayOtpPage({ amount, method, cardNumber, upiId, upiIn
     ? '0 4px 20px rgba(124,58,237,0.35)'
     : '0 4px 20px rgba(234,88,12,0.3)'
 
+  // ── Card Brand & Issuer Resolution ─────────────────────────────────────────
+  const getCardBranding = (num) => {
+    if (!num) return { bankName: 'SBI Card', brand: 'Mastercard Secure', logoIcon: '💳', color: '#113a5d' }
+    const firstDigit = num.replace(/\s/g, '')[0]
+    if (firstDigit === '4') {
+      return { bankName: 'HDFC Bank', brand: 'Visa Secure', logoIcon: '🔵', color: '#004c8f' }
+    } else if (firstDigit === '5') {
+      return { bankName: 'State Bank of India', brand: 'Mastercard Identity Check', logoIcon: '⚪', color: '#00b4d8' }
+    } else if (firstDigit === '3') {
+      return { bankName: 'American Express', brand: 'Amex SafeKey', logoIcon: '🟢', color: '#0070d2' }
+    }
+    return { bankName: 'SBI Card', brand: 'Mastercard Identity Check', logoIcon: '💳', color: '#113a5d' }
+  }
+  const cardBranding = getCardBranding(cardNumber)
+
   return (
     <div style={{
       minHeight: '100vh',
@@ -222,9 +339,62 @@ export default function JusPayOtpPage({ amount, method, cardNumber, upiId, upiIn
         .jp-verify-btn { transition: all 0.2s; }
         .jp-verify-btn:hover:not(:disabled) { transform: translateY(-1px); filter: brightness(1.05); }
         .jp-verify-btn:active:not(:disabled) { transform: translateY(0); }
+        
+        /* Simulated lockscreen notification keyframes */
+        @keyframes slideDownNotification {
+          0% { transform: translate(-50%, -100px); opacity: 0; }
+          100% { transform: translate(-50%, 0); opacity: 1; }
+        }
       `}</style>
 
-      {/* ── Bank Processing Overlay (after OTP verified) ── */}
+      {/* ── Simulated Phone Notification Drawer ── */}
+      {showPhoneNotification && (
+        <div 
+          onClick={() => { setShowPhoneNotification(false); setSubStep('upi-app'); }}
+          style={{
+            position: 'fixed',
+            top: '20px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            width: '90%',
+            maxWidth: '380px',
+            background: 'rgba(28, 28, 30, 0.96)',
+            color: '#ffffff',
+            borderRadius: '18px',
+            boxShadow: '0 10px 40px rgba(0,0,0,0.4)',
+            padding: '14px 18px',
+            zIndex: 99999,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            cursor: 'pointer',
+            border: '1px solid rgba(255,255,255,0.08)',
+            animation: 'slideDownNotification 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+            fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif',
+            textAlign: 'left'
+          }}
+        >
+          <div style={{
+            width: 34, height: 34, borderRadius: 8,
+            background: upiInfo?.bankColor || '#5f259f',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
+          }}>
+            {upiInfo?.bankIcon || '📱'}
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+              <span style={{ fontWeight: 800, fontSize: '13px', color: '#fff' }}>{upiInfo?.bank || 'UPI App'}</span>
+              <span style={{ fontSize: '10px', color: '#8e8e93' }}>Now</span>
+            </div>
+            <div style={{ fontSize: '12px', color: '#e5e5ea', fontWeight: 500, lineHeight: '1.35' }}>
+              Request of ₹{amount.toLocaleString('en-IN')} from SkyWay Travels. Tap to Pay.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Bank Processing Overlay (after verification) ── */}
       {bankProcessing && (
         <div style={{
           position: 'fixed', inset: 0, zIndex: 200,
@@ -245,335 +415,511 @@ export default function JusPayOtpPage({ amount, method, cardNumber, upiId, upiIn
               margin: '0 auto 1.25rem',
             }} />
             <div style={{ color: '#111827', fontWeight: 700, fontSize: '1.1rem', marginBottom: '0.4rem' }}>
-              🏦 Processing Payment...
+              🏦 Debiting Account...
             </div>
             <div style={{ color: '#6b7280', fontSize: '0.875rem', lineHeight: 1.6 }}>
-              Securely communicating with{' '}
-              <span style={{ color: accentColor, fontWeight: 600 }}>
-                {isUpi ? 'UPI / NPCI' : bank || 'your bank'}
-              </span>
-              . Please do not close this window.
-            </div>
-            <div style={{
-              marginTop: '1.25rem', display: 'flex', alignItems: 'center',
-              justifyContent: 'center', gap: 6,
-              background: '#f9fafb', borderRadius: 8, padding: '6px 12px',
-              border: '1px solid #e5e7eb',
-            }}>
-              <span style={{ fontSize: 10, color: '#9ca3af' }}>🔒 Secured by</span>
-              <span style={{ color: accentColor, fontWeight: 900, fontSize: 13 }}>JusPay</span>
-              <span style={{ fontSize: 10, color: '#9ca3af' }}>· NPCI · RBI</span>
+              Contacting bank server for account debitation. Please do not close this window.
             </div>
           </div>
         </div>
       )}
 
-      {/* ── Main Card ── */}
-      <div style={{
-        width: '100%', maxWidth: 440,
-        background: '#ffffff',
-        borderRadius: 16,
-        overflow: 'hidden',
-        boxShadow: '0 4px 6px -1px rgba(0,0,0,0.07), 0 10px 40px rgba(0,0,0,0.12)',
-        border: '1px solid #e5e7eb',
-      }}>
+      {/* ── 1. UPI Waiting Scanner / App Approval Request ── */}
+      {method === 'upi' && subStep === 'upi-waiting' && (() => {
+        const upiUrl = `upi://pay?pa=${activePayeeUpi}&pn=${encodeURIComponent(activeMerchantName)}&am=${amount}&cu=INR&tn=SkyWay%20Booking`;
+        const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(upiUrl)}`;
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        const handleUpiAppRedirect = () => {
+          window.location.href = upiUrl;
+        };
 
-        {/* ── Header ── */}
-        <div style={{
-          background: '#fff',
-          borderBottom: '2px solid #f3f4f6',
-          padding: '1.1rem 1.5rem',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            {/* JusPay Logo area */}
-            <div style={{
-              width: 38, height: 38, borderRadius: 9,
-              background: isUpi ? 'linear-gradient(135deg, #7c3aed, #a855f7)' : 'linear-gradient(135deg, #ea580c, #f97316)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontWeight: 900, fontSize: 18, color: '#fff',
-            }}>J</div>
-            <div>
-              <div style={{ color: '#111827', fontWeight: 700, fontSize: 14, letterSpacing: '-0.01em' }}>JusPay Secure</div>
-              <div style={{ color: '#9ca3af', fontSize: 11 }}>PCI DSS Level 1 · Bank-Grade</div>
-            </div>
-          </div>
-          {/* Timer badge */}
-          {sendStatus === 'sent' && sessionSecondsLeft !== null && (
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 4,
-              background: sessionExpired ? '#fef2f2' : (sessionSecondsLeft < 60 ? '#fff7ed' : '#f0fdf4'),
-              border: `1px solid ${sessionExpired ? '#fecaca' : (sessionSecondsLeft < 60 ? '#fed7aa' : '#bbf7d0')}`,
-              borderRadius: 20, padding: '4px 10px', animation: 'jp-fade 0.3s',
-            }}>
-              <span style={{ fontSize: 11, color: timerColor }}>⏱</span>
-              <span style={{ fontSize: 12, color: timerColor, fontWeight: 700, fontFamily: 'monospace' }}>
-                {sessionExpired ? 'Expired' : formatTimer(sessionSecondsLeft)}
-              </span>
-            </div>
-          )}
-          {sendStatus !== 'sent' && (
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 4,
-              background: '#f0fdf4', border: '1px solid #bbf7d0',
-              borderRadius: 20, padding: '3px 10px',
-            }}>
-              <span style={{ fontSize: 10, color: '#16a34a' }}>🔒</span>
-              <span style={{ fontSize: 10, color: '#16a34a', fontWeight: 600 }}>SSL Secured</span>
-            </div>
-          )}
-        </div>
-
-        {/* ── Body ── */}
-        <div style={{ padding: '1.75rem 1.75rem 0' }}>
-
-          {/* Payment summary pill */}
+        return (
           <div style={{
-            background: '#f9fafb',
-            border: '1px solid #e5e7eb',
-            borderRadius: 12, padding: '0.85rem 1.1rem', marginBottom: '1.5rem',
-            display: 'flex', alignItems: 'center', gap: '0.75rem',
+            width: '100%', maxWidth: 440, background: '#ffffff', borderRadius: 16, border: '1px solid #e5e7eb',
+            boxShadow: '0 10px 40px rgba(0,0,0,0.12)', overflow: 'hidden', textAlign: 'center', animation: 'jp-fade 0.35s'
           }}>
-            <div style={{
-              width: 36, height: 36, borderRadius: 8, flexShrink: 0,
-              background: isUpi
-                ? 'linear-gradient(135deg, #7c3aed22, #a855f722)'
-                : 'linear-gradient(135deg, #ea580c22, #f9731622)',
-              border: `1.5px solid ${isUpi ? '#ddd6fe' : '#fed7aa'}`,
-              display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17,
-            }}>
-              {method === 'card' ? '💳' : method === 'upi' ? '📱' : '🏦'}
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ color: '#9ca3af', fontSize: 10, marginBottom: 1, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                {method === 'card' ? 'Debit / Credit Card' : method === 'upi' ? 'UPI Payment' : 'Net Banking'}
+            {/* Header */}
+            <div style={{ borderBottom: '2px solid #f3f4f6', padding: '1.1rem 1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div style={{ width: 38, height: 38, borderRadius: 9, background: 'linear-gradient(135deg, #0b2d63, #3399cc)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: 18, color: '#fff' }}>R</div>
+                <div style={{ textAlign: 'left' }}>
+                  <div style={{ color: '#111827', fontWeight: 700, fontSize: 14 }}>UPI Secure Checkout</div>
+                  <div style={{ color: '#9ca3af', fontSize: 11 }}>NPCI Certified · White-Label Payee</div>
+                </div>
               </div>
-              <div style={{ color: '#111827', fontWeight: 600, fontSize: 13 }}>
-                {maskedCard || maskedUpi || bank || 'Account'}
-              </div>
-            </div>
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ color: '#9ca3af', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Amount</div>
-              <div style={{ color: accentColor, fontWeight: 800, fontSize: 16 }}>
-                ₹{(amount || 0).toLocaleString('en-IN')}
-              </div>
-            </div>
-          </div>
-
-          {/* ── OTP Status Section ── */}
-          <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
-            {/* Icon */}
-            <div style={{
-              width: 60, height: 60, borderRadius: '50%', margin: '0 auto 1rem',
-              background: sendStatus === 'sent'
-                ? accentColorLight
-                : sendStatus === 'error'
-                  ? '#fff5f5'
-                  : '#f3f4f6',
-              border: `2px solid ${sendStatus === 'sent' ? accentColorBorder : sendStatus === 'error' ? '#fecaca' : '#e5e7eb'}`,
-              display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24,
-              animation: sendStatus === 'sent' ? (isUpi ? 'jp-pulse-upi 2.2s ease-in-out infinite' : 'jp-pulse 2.2s ease-in-out infinite') : 'none',
-            }}>
-              {sendStatus === 'sending' ? (
-                <div style={{ width: 22, height: 22, border: '2.5px solid #e5e7eb', borderTopColor: accentColor, borderRadius: '50%', animation: 'jp-spin 0.7s linear infinite' }} />
-              ) : sendStatus === 'sent' ? (isUpi ? '🏦' : '🔐') : '⚠️'}
+              <div style={{ color: '#7c3aed', fontWeight: 800, fontSize: 16 }}>₹{amount.toLocaleString('en-IN')}</div>
             </div>
 
-            {sendStatus === 'sending' && (
-              <>
-                <div style={{ color: '#111827', fontWeight: 700, fontSize: 17, marginBottom: '0.3rem' }}>
-                  {isUpi ? 'Connecting to Bank...' : 'Sending OTP...'}
-                </div>
-                <div style={{ color: '#9ca3af', fontSize: 13 }}>
-                  {isUpi ? 'Initiating bank authentication session' : 'Dispatching to your registered contact'}
-                </div>
-                {isUpi && (
-                  <div style={{ marginTop: '0.75rem', height: 3, background: '#f3f4f6', borderRadius: 2, overflow: 'hidden' }}>
-                    <div style={{ height: '100%', background: accentColor, borderRadius: 2, animation: 'jp-redirect 1.5s ease-out forwards' }} />
-                  </div>
-                )}
-              </>
-            )}
-
-            {sendStatus === 'sent' && (
-              <div style={{ animation: 'jp-fade 0.4s' }}>
-                <div style={{ color: '#111827', fontWeight: 700, fontSize: 17, marginBottom: '0.4rem' }}>
-                  {isUpi ? 'Bank OTP Sent!' : 'OTP Sent Successfully!'}
-                </div>
-                {alreadySent && (
-                  <div style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 5,
-                    background: '#fffbeb', border: '1px solid #fde68a',
-                    borderRadius: 8, padding: '4px 12px', fontSize: 11, color: '#92400e', marginBottom: '0.5rem',
-                  }}>
-                    ℹ OTP already sent — check your email/SMS
-                  </div>
-                )}
-                {isUpi && upiInfo && (
-                  <div style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 5,
-                    background: '#f5f3ff', border: '1px solid #ddd6fe',
-                    borderRadius: 8, padding: '4px 12px', fontSize: 11, color: '#6d28d9', marginBottom: '0.5rem',
-                  }}>
-                    {upiInfo.bankIcon} OTP from {upiInfo.bank}
-                  </div>
-                )}
-                {/* Delivery channels */}
-                <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
-                  {maskedEmail && (
-                    <span style={{
-                      display: 'inline-flex', alignItems: 'center', gap: 4,
-                      background: '#f0fdf4', border: '1px solid #bbf7d0',
-                      borderRadius: 20, padding: '4px 12px', fontSize: 12, color: '#166534', fontWeight: 600,
-                    }}>✉ {maskedEmail}</span>
-                  )}
-                  {maskedPhone && (
-                    <span style={{
-                      display: 'inline-flex', alignItems: 'center', gap: 4,
-                      background: '#eff6ff', border: '1px solid #bfdbfe',
-                      borderRadius: 20, padding: '4px 12px', fontSize: 12, color: '#1e40af', fontWeight: 600,
-                    }}>📱 {maskedPhone}</span>
-                  )}
-                </div>
-                <div style={{ color: '#6b7280', fontSize: 12 }}>
-                  {isUpi
-                    ? `Enter the 6-digit OTP from your bank (valid ${expiresInMins} min)`
-                    : 'Check your email & phone for the 6-digit OTP'}
-                </div>
-              </div>
-            )}
-
-            {sendStatus === 'error' && (
-              <div style={{ animation: 'jp-fade 0.3s' }}>
-                <div style={{ color: '#e53e3e', fontWeight: 700, fontSize: 16, marginBottom: '0.3rem' }}>Could not send OTP</div>
-                <div style={{ color: '#9ca3af', fontSize: 12 }}>Check your email/phone and try resending</div>
-              </div>
-            )}
-          </div>
-
-          {/* ── OTP Input Boxes ── */}
-          {sendStatus === 'sent' && (
-            <>
-              <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'center', marginBottom: '0.75rem' }}
-                onPaste={handlePaste}>
-                {otp.map((digit, idx) => (
-                  <input
-                    key={idx}
-                    ref={el => inputRefs.current[idx] = el}
-                    className={`otp-box-white${digit ? ' filled' : ''}${otpError ? ' error' : ''}${sessionExpired ? ' expired' : ''}`}
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={1}
-                    value={digit}
-                    onChange={e => handleOtpChange(idx, e.target.value)}
-                    onKeyDown={e => handleKeyDown(idx, e)}
-                    disabled={verifying || sessionExpired}
-                    style={{
-                      width: 46, height: 54, borderRadius: 10,
-                      border: '1.5px solid #d1d5db',
-                      background: '#fff',
-                      color: '#111827', textAlign: 'center', fontSize: 22, fontWeight: 700,
-                      transition: 'border-color 0.15s, box-shadow 0.15s, background 0.15s',
-                      cursor: sessionExpired ? 'not-allowed' : 'text',
-                    }}
-                  />
-                ))}
-              </div>
-
-              {/* Error / Expired message */}
+            <div style={{ padding: '2rem 1.5rem' }}>
               {otpError && (
-                <p style={{
-                  color: sessionExpired ? '#e07c00' : '#e53e3e',
-                  fontSize: 12, textAlign: 'center',
-                  marginBottom: '0.5rem', animation: 'jp-fade 0.2s',
-                  background: sessionExpired ? '#fff7ed' : '#fff5f5',
-                  border: `1px solid ${sessionExpired ? '#fed7aa' : '#fecaca'}`,
-                  borderRadius: 8, padding: '6px 12px',
+                <div style={{
+                  background: '#fff5f5', border: '1.5px solid #fecaca', color: '#c53030',
+                  borderRadius: 10, padding: '10px', fontSize: 12, marginBottom: 16, textAlign: 'center'
                 }}>
                   {otpError}
-                </p>
+                </div>
               )}
-
-              {/* Resend timer */}
-              <div style={{ textAlign: 'center', marginBottom: '1.25rem' }}>
-                {canResend || sessionExpired ? (
-                  <button onClick={handleResend} style={{
-                    background: 'none', border: 'none', cursor: 'pointer',
-                    color: accentColor, fontSize: 13, fontWeight: 600,
-                    textDecoration: 'underline', padding: 0,
-                  }}>
-                    🔄 {sessionExpired ? 'Start New Session' : 'Resend OTP'}
-                  </button>
-                ) : (
-                  <span style={{ color: '#9ca3af', fontSize: 12 }}>
-                    Resend in <span style={{ color: accentColor, fontWeight: 600 }}>{resendTimer}s</span>
-                  </span>
-                )}
+              {/* Active countdown timer */}
+              <div style={{
+                background: qrExpired ? '#fef2f2' : '#fff7ed',
+                border: `1.5px solid ${qrExpired ? '#fecaca' : '#fed7aa'}`,
+                borderRadius: 20, padding: '4px 14px', display: 'inline-flex',
+                alignItems: 'center', gap: 6, marginBottom: 16
+              }}>
+                <span style={{ fontSize: 12 }}>⏱️</span>
+                <span style={{ fontSize: 13, fontWeight: 700, fontFamily: 'monospace', color: qrExpired ? '#ef4444' : '#ea580c' }}>
+                  {qrExpired ? 'Payment Session Expired' : `Pay within: ${String(Math.floor(qrSecondsLeft / 60)).padStart(2, '0')}:${String(qrSecondsLeft % 60).padStart(2, '0')}`}
+                </span>
               </div>
-            </>
-          )}
 
-          {/* Resend button when sending failed */}
-          {sendStatus === 'error' && (
-            <div style={{ textAlign: 'center', marginBottom: '1.25rem' }}>
-              <button onClick={handleResend} style={{
-                background: accentColorLight, border: `1px solid ${accentColorBorder}`,
-                borderRadius: 10, padding: '0.6rem 1.5rem', color: accentColor,
-                fontWeight: 600, fontSize: 14, cursor: 'pointer',
-              }}>Try Again</button>
+              {qrExpired ? (
+                <div style={{ padding: '1.5rem 0' }}>
+                  <div style={{ fontSize: 48, marginBottom: 12 }}>⏱️</div>
+                  <h4 style={{ color: '#e53e3e', margin: '0 0 8px', fontWeight: 700 }}>Transaction Expired</h4>
+                  <p style={{ color: '#6b7280', fontSize: 13, margin: '0 0 20px' }}>
+                    The 5-minute checkout window has elapsed. No funds were debited. Please go back and request a new session.
+                  </p>
+                  <button onClick={onBack} style={{
+                    padding: '10px 20px', background: '#f3f4f6', border: '1px solid #d1d5db', borderRadius: 8,
+                    color: '#4b5563', fontSize: 13, fontWeight: 600, cursor: 'pointer'
+                  }}>Go Back</button>
+                </div>
+              ) : (
+                <div>
+                  <h3 style={{ fontSize: 15, fontWeight: 700, margin: '0 0 16px', color: '#111827' }}>
+                    {selectedUpiApp 
+                      ? `Scan to Pay with ${upiInfo?.bank || 'UPI App'}`
+                      : 'Scan to Pay via UPI'}
+                  </h3>
+
+                  {/* QR Code container */}
+                  <div style={{ margin: '0 auto 20px', display: 'inline-block', padding: 8, background: '#fff', border: '1.5px solid #e5e7eb', borderRadius: 12, boxShadow: '0 4px 10px rgba(0,0,0,0.05)' }}>
+                    <img 
+                      src={qrUrl} 
+                      alt="UPI QR Code" 
+                      style={{ width: 180, height: 180, display: 'block' }}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center', color: '#16a34a', fontSize: 12, fontWeight: 700, marginBottom: 20 }}>
+                    <span style={{ animation: 'jp-spin 2s linear infinite', display: 'inline-block' }}>⏳</span>
+                    <span>Awaiting payment approval in your mobile app...</span>
+                  </div>
+
+                  {/* Mobile Direct Intent redirection */}
+                  {isMobile && (
+                    <button
+                      onClick={handleUpiAppRedirect}
+                      style={{
+                        width: '100%', padding: '14px', background: '#138808', color: '#fff',
+                        border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: 'pointer',
+                        boxShadow: '0 4px 12px rgba(19,136,8,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                        marginBottom: 12
+                      }}
+                    >
+                      🚀 Redirect & Pay in UPI App
+                    </button>
+                  )}
+
+
+                </div>
+              )}
             </div>
-          )}
-        </div>
+            <div style={{ padding: '1rem 1.5rem', background: '#fafafa', borderTop: '1px solid #f3f4f6' }}>
+              <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#9ca3af', fontSize: 12, cursor: 'pointer' }}>← Back to payment methods</button>
+            </div>
+          </div>
+        );
+      })()}
 
-        {/* ── Verify Button + Back ── */}
-        <div style={{ padding: '0 1.75rem 1.5rem' }}>
-          <button
-            className="jp-verify-btn"
-            onClick={handleVerify}
-            disabled={isVerifyDisabled}
-            style={{
-              width: '100%', padding: '0.95rem', borderRadius: 12, border: 'none',
-              cursor: isVerifyDisabled ? 'not-allowed' : 'pointer',
-              background: isVerifyDisabled
-                ? '#e5e7eb'
-                : accentColorBtn,
-              color: isVerifyDisabled ? '#9ca3af' : '#fff',
-              fontWeight: 700, fontSize: 15,
-              boxShadow: isVerifyDisabled ? 'none' : accentBtnShadow,
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
-            }}
-          >
-            {verifying ? (
-              <>
-                <div style={{ width: 16, height: 16, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: '#fff', borderRadius: '50%', animation: 'jp-spin 0.8s linear infinite' }} />
-                Verifying OTP...
-              </>
-            ) : sessionExpired ? '⏱ Session Expired — Resend OTP' : '✓ Verify & Pay'}
-          </button>
-
-          <button onClick={onBack} style={{
-            display: 'block', width: '100%', marginTop: '0.65rem',
-            background: 'none', border: 'none', cursor: 'pointer',
-            color: '#9ca3af', fontSize: 12, textAlign: 'center', padding: '0.4rem',
-          }}>← Change payment method</button>
-        </div>
-
-        {/* ── Footer ── */}
+      {/* ── 2. UPI Mobile App Mockup Screen ── */}
+      {method === 'upi' && subStep === 'upi-app' && (
         <div style={{
-          borderTop: '1px solid #f3f4f6', padding: '0.75rem 1.75rem',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          background: '#fafafa',
+          width: '100%', maxWidth: 360, background: '#ffffff', borderRadius: '32px', border: '12px solid #1a1a1a',
+          boxShadow: '0 25px 60px rgba(0,0,0,0.25)', overflow: 'hidden', animation: 'jp-fade 0.3s', color: '#1c1c1e', textAlign: 'left'
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <span style={{ fontSize: 10, color: '#9ca3af' }}>Powered by</span>
-            <span style={{ fontSize: 12, fontWeight: 900, color: accentColor }}>JusPay</span>
-            <span style={{ fontSize: 10, color: '#9ca3af' }}>· PCI DSS Level 1</span>
+          {/* App Bar */}
+          <div style={{ background: upiInfo?.bankColor || '#5f259f', color: '#ffffff', padding: '20px 16px 14px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{ fontSize: 18 }}>{upiInfo?.bankIcon || '📱'}</span>
+            <span style={{ fontWeight: 700, fontSize: 15 }}>{upiInfo?.bank || 'UPI Payments'}</span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ fontSize: 10, color: '#9ca3af' }}>🔒 256-bit SSL</span>
+
+          <div style={{ padding: '24px 20px', textAlign: 'center' }}>
+            <div style={{ width: 56, height: 56, borderRadius: '50%', background: '#f2f2f7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, margin: '0 auto 12px' }}>✈</div>
+            <div style={{ fontSize: 11, color: '#8e8e93', fontWeight: 700, marginBottom: 2 }}>PAYING MERCHANT</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: '#1c1c1e', marginBottom: 12 }}>SkyWay Travels</div>
+            
+            <div style={{ fontSize: 32, fontWeight: 800, color: '#1c1c1e', letterSpacing: '-0.02em', marginBottom: 20 }}>
+              ₹{amount.toLocaleString('en-IN')}
+            </div>
+            
+            <div style={{
+              background: '#f8f9fa', borderRadius: 12, padding: '12px 14px',
+              fontSize: 13, color: '#3a3a3c', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              marginBottom: 28, border: '1px solid #e5e5ea'
+            }}>
+              <span style={{ fontWeight: 600, color: '#8e8e93' }}>Debit From:</span>
+              <span style={{ fontWeight: 700 }}>HDFC Bank (•••• 8943)</span>
+            </div>
+            
+            <button
+              onClick={() => setSubStep('upi-pin')}
+              style={{
+                width: '100%', background: upiInfo?.bankColor || '#5f259f', color: '#ffffff',
+                border: 'none', borderRadius: 12, padding: '14px', fontSize: 15, fontWeight: 700, cursor: 'pointer',
+                boxShadow: `0 4px 16px ${(upiInfo?.bankColor || '#5f259f')}44`
+              }}
+            >
+              Pay ₹{amount.toLocaleString('en-IN')}
+            </button>
           </div>
         </div>
-      </div>
+      )}
+
+      {/* ── 3. NPCI UPI PIN Pad ── */}
+      {method === 'upi' && subStep === 'upi-pin' && (
+        <div style={{
+          width: '100%', maxWidth: 360, background: '#0d1b2a', borderRadius: '32px', border: '12px solid #1a1a1a',
+          boxShadow: '0 25px 60px rgba(0,0,0,0.25)', overflow: 'hidden', animation: 'jp-fade 0.3s', color: '#ffffff',
+          textAlign: 'center', paddingBottom: '20px', fontFamily: 'monospace'
+        }}>
+          {/* NPCI Header */}
+          <div style={{ background: '#1b263b', padding: '12px', fontSize: '11px', color: '#a3b18a', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>NATIONAL PAYMENTS CORPORATION</span>
+            <span style={{ fontWeight: 900, color: '#fff' }}>NPCI</span>
+          </div>
+
+          <div style={{ padding: '20px' }}>
+            <div style={{ fontSize: '12px', color: '#e0e0e0', marginBottom: '4px' }}>Paying SkyWay Travels</div>
+            <div style={{ fontSize: '20px', fontWeight: 800, color: '#f7931e', marginBottom: '16px' }}>₹{amount.toLocaleString('en-IN')}</div>
+            <div style={{ fontSize: '11px', color: '#a3b18a', marginBottom: '8px', letterSpacing: '1px' }}>ENTER UPI PIN</div>
+            
+            {/* Pin Dots */}
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', marginBottom: '24px' }}>
+              {[0, 1, 2, 3, 4, 5].map(idx => (
+                <div key={idx} style={{
+                  width: 14, height: 14, borderRadius: '50%',
+                  background: upiPin[idx] !== undefined ? '#fff' : 'transparent',
+                  border: '2px solid #fff',
+                  transition: 'background 0.15s'
+                }} />
+              ))}
+            </div>
+
+            {otpError && (
+              <div style={{ background: 'rgba(229,62,62,0.15)', border: '1px solid #e53e3e', color: '#fc8181', borderRadius: 8, padding: '8px', fontSize: 11, marginBottom: 16 }}>
+                {otpError}
+              </div>
+            )}
+
+            {/* Numpad Grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '14px', maxWidth: '240px', margin: '0 auto 10px' }}>
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(num => (
+                <button key={num}
+                  onClick={() => {
+                    setOtpError('')
+                    if (upiPin.length < 6) setUpiPin([...upiPin, String(num)])
+                  }}
+                  style={{
+                    background: '#1b263b', border: 'none', borderRadius: '50%',
+                    width: 50, height: 50, color: '#fff', fontSize: 18, fontWeight: 700,
+                    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    margin: '0 auto'
+                  }}
+                >{num}</button>
+              ))}
+              {/* Backspace */}
+              <button
+                onClick={() => { setOtpError(''); setUpiPin(upiPin.slice(0, -1)); }}
+                style={{
+                  background: '#1b263b', border: 'none', borderRadius: '50%',
+                  width: 50, height: 50, color: '#ff6b6b', fontSize: 18, fontWeight: 700,
+                  cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  margin: '0 auto'
+                }}
+              >⌫</button>
+              {/* 0 */}
+              <button
+                onClick={() => {
+                  setOtpError('')
+                  if (upiPin.length < 6) setUpiPin([...upiPin, '0'])
+                }}
+                style={{
+                  background: '#1b263b', border: 'none', borderRadius: '50%',
+                  width: 50, height: 50, color: '#fff', fontSize: 18, fontWeight: 700,
+                  cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  margin: '0 auto'
+                }}
+              >0</button>
+              {/* Submit */}
+              <button
+                onClick={() => handleVerify(upiPin.join(''))}
+                disabled={upiPin.length < 4 || verifying}
+                style={{
+                  background: upiPin.length >= 4 ? '#2a9d8f' : '#3d5a80',
+                  border: 'none', borderRadius: '50%',
+                  width: 50, height: 50, color: '#fff', fontSize: 18, fontWeight: 700,
+                  cursor: upiPin.length >= 4 ? 'pointer' : 'not-allowed',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  margin: '0 auto', transition: 'background 0.2s', opacity: verifying ? 0.6 : 1
+                }}
+              >✓</button>
+            </div>
+            <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: '9px', marginTop: '10px' }}>
+              🔒 Protected by 256-bit bank-grade encryption
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── 4. NetBanking Retail Login Portal ── */}
+      {method === 'netbanking' && subStep === 'nb-login' && (
+        <div style={{
+          width: '100%', maxWidth: 440, background: '#ffffff', borderRadius: '12px', border: '1px solid #d1d5db',
+          boxShadow: '0 10px 30px rgba(0,0,0,0.08)', overflow: 'hidden', animation: 'jp-fade 0.3s', color: '#1a1a1a', textAlign: 'left'
+        }}>
+          <div style={{
+            background: bank === 'SBI' ? '#00b4d8' : '#004c8f', color: '#ffffff',
+            padding: '16px 20px', fontWeight: 700, fontSize: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+          }}>
+            <span>{bank} Secure Retail NetBanking</span>
+            <span style={{ fontSize: 12 }}>🔒 Safe & Secure</span>
+          </div>
+
+          <div style={{ padding: '24px 20px' }}>
+            <h4 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 700, color: '#333' }}>Login to NetBanking Account</h4>
+            
+            {otpError && (
+              <div style={{ background: '#fff5f5', border: '1px solid #fecaca', color: '#c53030', borderRadius: 8, padding: '10px', fontSize: 13, marginBottom: 14 }}>
+                {otpError}
+              </div>
+            )}
+
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 12, color: '#4b5563', display: 'block', marginBottom: 4, fontWeight: 600 }}>Username / Customer ID</label>
+              <input
+                type="text"
+                placeholder="Enter username"
+                value={nbUser}
+                onChange={e => { setOtpError(''); setNbUser(e.target.value); }}
+                style={{
+                  width: '100%', padding: '10px 12px', borderRadius: 6, border: '1px solid #d1d5db',
+                  fontSize: 14, outline: 'none', background: '#fff', color: '#000'
+                }}
+              />
+            </div>
+
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ fontSize: 12, color: '#4b5563', display: 'block', marginBottom: 4, fontWeight: 600 }}>Password</label>
+              <input
+                type="password"
+                placeholder="Enter password"
+                value={nbPass}
+                onChange={e => { setOtpError(''); setNbPass(e.target.value); }}
+                style={{
+                  width: '100%', padding: '10px 12px', borderRadius: 6, border: '1px solid #d1d5db',
+                  fontSize: 14, outline: 'none', background: '#fff', color: '#000'
+                }}
+              />
+            </div>
+
+            <button
+              onClick={() => {
+                if (nbUser.trim() && nbPass.trim()) {
+                  setSubStep('nb-otp')
+                } else {
+                  setOtpError('Please enter username and password.')
+                }
+              }}
+              style={{
+                width: '100%', background: bank === 'SBI' ? '#00b4d8' : '#004c8f', color: '#ffffff',
+                border: 'none', borderRadius: 6, padding: '12px', fontSize: 14, fontWeight: 700, cursor: 'pointer'
+              }}
+            >
+              Login Securely
+            </button>
+            <div style={{ textAlign: 'center', marginTop: 14 }}>
+              <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#9ca3af', fontSize: 12, cursor: 'pointer' }}>Cancel & Go Back</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── 5. Netbanking OTP Page ── */}
+      {method === 'netbanking' && subStep === 'nb-otp' && (
+        <div style={{
+          width: '100%', maxWidth: 440, background: '#ffffff', borderRadius: 12, border: '1px solid #e5e7eb',
+          boxShadow: '0 10px 30px rgba(0,0,0,0.08)', overflow: 'hidden', animation: 'jp-fade 0.3s', color: '#1a1a1a', textAlign: 'center'
+        }}>
+          {/* Header */}
+          <div style={{
+            background: bank === 'SBI' ? '#00b4d8' : '#004c8f', color: '#ffffff',
+            padding: '16px 20px', fontWeight: 700, fontSize: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+          }}>
+            <span>{bank} OTP Authorization</span>
+            <span style={{ fontSize: 12 }}>🔒 Secure Link</span>
+          </div>
+
+          <div style={{ padding: '24px 20px' }}>
+            <h3 style={{ fontSize: 15, fontWeight: 700, margin: '0 0 8px', color: '#333' }}>One-Time Password Verification</h3>
+            <p style={{ color: '#6b7280', fontSize: 12, lineHeight: 1.5, marginBottom: 20 }}>
+              A High Security OTP has been sent to your registered mobile number and email. Input it below to complete the transaction.
+            </p>
+
+            {devOtp && (
+              <div style={{ background: '#f0fdf4', border: '1.5px solid #86efac', borderRadius: 8, padding: '8px 16px', fontSize: 13, color: '#15803d', fontWeight: 700, marginBottom: 16, letterSpacing: 2, fontFamily: 'monospace' }}>
+                🔓 Dev OTP: {devOtp}
+              </div>
+            )}
+
+            {/* 6-box input */}
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginBottom: 20 }}>
+              {otp.map((digit, idx) => (
+                <input
+                  key={idx}
+                  ref={el => inputRefs.current[idx] = el}
+                  className={`otp-box-white${digit ? ' filled' : ''}${otpError ? ' error' : ''}`}
+                  type="text"
+                  maxLength={1}
+                  value={digit}
+                  onChange={e => {
+                    const next = [...otp]
+                    next[idx] = e.target.value.replace(/\D/g, '')
+                    setOtp(next)
+                    setOtpError('')
+                    if (e.target.value && idx < 5) inputRefs.current[idx + 1]?.focus()
+                  }}
+                  onKeyDown={e => {
+                    if (e.key === 'Backspace' && !otp[idx] && idx > 0) inputRefs.current[idx - 1]?.focus()
+                  }}
+                  style={{
+                    width: 42, height: 48, borderRadius: 8, border: '1.5px solid #d1d5db', textAlign: 'center', fontSize: 20, fontWeight: 700, outline: 'none'
+                  }}
+                />
+              ))}
+            </div>
+
+            {otpError && (
+              <div style={{ background: '#fff5f5', border: '1px solid #fecaca', color: '#c53030', borderRadius: 8, padding: '8px', fontSize: 12, marginBottom: 16 }}>
+                {otpError}
+              </div>
+            )}
+
+            <button
+              onClick={() => handleVerify()}
+              disabled={verifying}
+              style={{
+                width: '100%', background: bank === 'SBI' ? '#00b4d8' : '#004c8f', color: '#ffffff',
+                border: 'none', borderRadius: 6, padding: '12px', fontSize: 14, fontWeight: 700, cursor: 'pointer', opacity: verifying ? 0.6 : 1
+              }}
+            >
+              {verifying ? 'Verifying...' : 'Confirm Payment'}
+            </button>
+            <div style={{ marginTop: 14 }}>
+              <button onClick={() => setSubStep('nb-login')} style={{ background: 'none', border: 'none', color: '#9ca3af', fontSize: 12, cursor: 'pointer' }}>← Back to login</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── 6. Card 3D Secure Verification ── */}
+      {method === 'card' && subStep === 'card-otp' && (
+        <div style={{
+          width: '100%', maxWidth: 440, background: '#ffffff', borderRadius: 16, border: '1px solid #e5e7eb',
+          boxShadow: '0 10px 40px rgba(0,0,0,0.12)', overflow: 'hidden', animation: 'jp-fade 0.35s'
+        }}>
+          {/* Bank logo banner */}
+          <div style={{
+            background: cardBranding.color, color: '#ffffff', padding: '16px 20px',
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 16 }}>{cardBranding.logoIcon}</span>
+              <span style={{ fontWeight: 700, fontSize: 14 }}>{cardBranding.bankName}</span>
+            </div>
+            <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: 0.5 }}>{cardBranding.brand}</span>
+          </div>
+
+          <div style={{ padding: '24px 20px', textAlign: 'left', color: '#333' }}>
+            <h3 style={{ fontSize: 15, fontWeight: 700, margin: '0 0 16px', color: '#111827', textAlign: 'center' }}>
+              Secure Authentication Page
+            </h3>
+
+            {/* Details Table */}
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginBottom: 20 }}>
+              <tbody>
+                <tr style={{ borderBottom: '1px solid #f3f4f6' }}>
+                  <td style={{ padding: '8px 0', color: '#6b7280' }}>Merchant</td>
+                  <td style={{ padding: '8px 0', fontWeight: 600, textAlign: 'right', color: '#111827' }}>SkyWay Travels</td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid #f3f4f6' }}>
+                  <td style={{ padding: '8px 0', color: '#6b7280' }}>Amount</td>
+                  <td style={{ padding: '8px 0', fontWeight: 700, textAlign: 'right', color: '#ea580c' }}>₹{amount.toLocaleString('en-IN')}</td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid #f3f4f6' }}>
+                  <td style={{ padding: '8px 0', color: '#6b7280' }}>Card Number</td>
+                  <td style={{ padding: '8px 0', fontWeight: 600, textAlign: 'right', color: '#111827' }}>
+                    **** **** **** {cardNumber.replace(/\s/g, '').slice(-4)}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+
+            {devOtp && (
+              <div style={{ background: '#f0fdf4', border: '1.5px solid #86efac', borderRadius: 8, padding: '8px 16px', fontSize: 13, color: '#15803d', fontWeight: 700, marginBottom: 16, textAlign: 'center', letterSpacing: 2, fontFamily: 'monospace' }}>
+                🔓 Dev OTP: {devOtp}
+              </div>
+            )}
+
+            {/* 6-box input */}
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginBottom: 20 }}>
+              {otp.map((digit, idx) => (
+                <input
+                  key={idx}
+                  ref={el => inputRefs.current[idx] = el}
+                  className={`otp-box-white${digit ? ' filled' : ''}${otpError ? ' error' : ''}`}
+                  type="text"
+                  maxLength={1}
+                  value={digit}
+                  onChange={e => {
+                    const next = [...otp]
+                    next[idx] = e.target.value.replace(/\D/g, '')
+                    setOtp(next)
+                    setOtpError('')
+                    if (e.target.value && idx < 5) inputRefs.current[idx + 1]?.focus()
+                  }}
+                  onKeyDown={e => {
+                    if (e.key === 'Backspace' && !otp[idx] && idx > 0) inputRefs.current[idx - 1]?.focus()
+                  }}
+                  style={{
+                    width: 42, height: 48, borderRadius: 8, border: '1.5px solid #d1d5db', textAlign: 'center', fontSize: 20, fontWeight: 700, outline: 'none'
+                  }}
+                />
+              ))}
+            </div>
+
+            {otpError && (
+              <div style={{ background: '#fff5f5', border: '1px solid #fecaca', color: '#c53030', borderRadius: 8, padding: '8px', fontSize: 12, marginBottom: 16, textAlign: 'center' }}>
+                {otpError}
+              </div>
+            )}
+
+            <button
+              onClick={() => handleVerify()}
+              disabled={verifying}
+              style={{
+                width: '100%', background: cardBranding.color, color: '#ffffff',
+                border: 'none', borderRadius: 8, padding: '12px', fontSize: 14, fontWeight: 700, cursor: 'pointer', opacity: verifying ? 0.6 : 1
+              }}
+            >
+              {verifying ? 'Verifying Card Security...' : 'Verify Secure Card Code'}
+            </button>
+            <div style={{ textAlign: 'center', marginTop: 14 }}>
+              <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#9ca3af', fontSize: 12, cursor: 'pointer' }}>Cancel & Go Back</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

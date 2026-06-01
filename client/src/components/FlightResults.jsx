@@ -77,9 +77,9 @@ export default function FlightResults({ flights, from, to, date, returnDate, tri
     : ''
 
   const filterTabs = [
-    { id: 'cheapest', label: 'Cheapest',   sub: fmt(cheapestPrice), hint: 'Lowest fare',    color: '#22d07a' },
-    { id: 'fastest',  label: 'Fastest',    sub: fmt(fastestPrice),  hint: 'Direct · Quick', color: '#f5a623' },
-    { id: 'best',     label: 'Best Value', sub: fmt(bestPrice),     hint: 'Price + Speed',  color: '#60a5fa' },
+    { id: 'cheapest', label: 'Cheapest',   sub: fmt(cheapestPrice ? cheapestPrice * passengerCount : null), perPerson: passengerCount > 1 ? fmt(cheapestPrice) : null, hint: 'Lowest fare',    color: '#22d07a' },
+    { id: 'fastest',  label: 'Fastest',    sub: fmt(fastestPrice ? fastestPrice * passengerCount : null),   perPerson: passengerCount > 1 ? fmt(fastestPrice) : null,  hint: 'Direct · Quick', color: '#f5a623' },
+    { id: 'best',     label: 'Best Value', sub: fmt(bestPrice ? bestPrice * passengerCount : null),          perPerson: passengerCount > 1 ? fmt(bestPrice) : null,     hint: 'Price + Speed',  color: '#60a5fa' },
   ]
 
   return (
@@ -144,6 +144,15 @@ export default function FlightResults({ flights, from, to, date, returnDate, tri
                     letterSpacing: '0.01em',
                   }}>
                     {tab.hint}
+                  </div>
+                )}
+                {tab.perPerson && (
+                  <div style={{
+                    fontSize: '0.62rem',
+                    color: sortMethod === tab.id ? `${tab.color}99` : 'rgba(255,255,255,0.25)',
+                    marginTop: '1px',
+                  }}>
+                    {tab.perPerson}/person
                   </div>
                 )}
               </button>

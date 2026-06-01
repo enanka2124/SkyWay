@@ -161,6 +161,8 @@ export default function Hotels() {
             }
           })
         }
+        // Always sort cheapest first on the client side too
+        updatedHotels.sort((a, b) => a.price - b.price)
         setHotels(updatedHotels)
       } else {
         console.warn('Hotels API returned success:false', data)
@@ -181,6 +183,15 @@ export default function Hotels() {
 
   const nights = checkin && checkout ? Math.max(1, Math.ceil((new Date(checkout) - new Date(checkin)) / 86400000)) : 1
 
+  // Per-guest surcharge: each guest beyond first per room adds 25% of per-room base rate
+  const getGuestMultiplier = (guestCount, roomCount) => {
+    const guestsPerRoom = Math.ceil(guestCount / roomCount)
+    if (guestsPerRoom <= 1) return 1
+    return 1 + (guestsPerRoom - 1) * 0.25
+  }
+
+  const guestMultiplier = getGuestMultiplier(guests, rooms)
+
   const handleHotelClick = (hotel) => {
     if (!user) {
       navigate('/signin', { state: { from: '/hotels' } })
@@ -190,7 +201,7 @@ export default function Hotels() {
       state: {
         type: 'hotel',
         data: hotel,
-        searchInfo: { checkin, checkout, guests, rooms, nights },
+        searchInfo: { checkin, checkout, guests, rooms, nights, guestMultiplier },
       }
     })
   }
@@ -319,6 +330,11 @@ export default function Hotels() {
                 <div className="font-syne text-xl font-bold">
                   {hotels.length} hotels found in {city}
                 </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', background: 'rgba(255,255,255,0.06)', padding: '4px 12px', borderRadius: 20, border: '1px solid rgba(255,255,255,0.1)' }}>
+                    💰 Sorted: Lowest Price First
+                  </span>
+                </div>
               </div>
 
               <div className="routes-grid" style={{ gap: '1.5rem' }}>
@@ -351,11 +367,12 @@ export default function Hotels() {
                       {hotel.amenities.length > 3 && <span className="text-[0.7rem] text-text-muted">+{hotel.amenities.length - 3}</span>}
                     </div>
                     <div className="font-syne text-xl font-bold text-accent">
-                      ₹{(hotel.price * nights * rooms).toLocaleString('en-IN')}
+                      ₹{Math.round(hotel.price * nights * rooms * guestMultiplier).toLocaleString('en-IN')}
                       <span className="text-sm text-text-muted font-normal"> total for {nights} night{nights > 1 ? 's' : ''} ({guests} guest{guests > 1 ? 's' : ''}, {rooms} room{rooms > 1 ? 's' : ''})</span>
                     </div>
                     <div className="text-xs text-text-muted">
                       ₹{hotel.price.toLocaleString('en-IN')} /room /night
+                      {guestMultiplier > 1 && <span className="ml-2" style={{ color: '#f5a623' }}>+{Math.round((guestMultiplier - 1) * 100)}% guest surcharge</span>}
                     </div>
                   </div>
                 ))}
