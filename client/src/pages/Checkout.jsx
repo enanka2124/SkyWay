@@ -22,6 +22,7 @@ export default function Checkout() {
   const [paymentFailed, setPaymentFailed] = useState(false)
   const [paymentFailureInfo, setPaymentFailureInfo] = useState(null)
   const [ticketId, setTicketId] = useState('')
+  const [isInitiating, setIsInitiating] = useState(false)
   // screen: 'form' | 'confirmed' | 'failed'
   const screen = confirmed ? 'confirmed' : paymentFailed ? 'failed' : 'form'
 
@@ -163,49 +164,15 @@ export default function Checkout() {
 
   const pricing = booking ? (type === 'flight' || type === 'deal' ? getFlightPricing() : getHotelPricing()) : { total: 0 }
 
-  const handleProceed = () => {
+  const handleProceed = async () => {
     if (!firstName.trim() || !lastName.trim() || !email.trim()) {
       alert('Please fill in your name and email to continue.')
       return
     }
-    setShowPayment(true)
-  }
-
-  const handlePaymentSuccess = async (paymentData) => {
-    sessionStorage.removeItem('skyway_active_payment')
-    setShowPayment(false)
-    const id = paymentData?.bookingId || (
-      type === 'hotel'
-        ? 'HTL' + Math.random().toString(36).substr(2, 8).toUpperCase()
-        : 'SKY' + Math.random().toString(36).substr(2, 8).toUpperCase()
-    )
-
-    setTicketId(id)
-
-    // Save to localStorage using user-specific key
-    const tripsKey = `skyway_trips_${user?._id || 'guest'}`
-    const trips = JSON.parse(localStorage.getItem(tripsKey) || '[]')
-    const tripEntry = {
-      type: type === 'deal' ? 'flight' : type,
-      ticketId: id,
-      flight: type !== 'hotel' ? item : undefined,
-      hotel: type === 'hotel' ? item : undefined,
-      checkin: booking?.searchInfo?.checkin,
-      checkout: booking?.searchInfo?.checkout,
-      pricing: { ...pricing },
-      passenger: { firstName, lastName, email, phone },
-      paymentId: paymentData?.paymentId,
-      paymentMethod: paymentData?.method || 'card',
-      paymentStatus: 'confirmed',
-      bookedAt: new Date().toISOString(),
-    }
-    trips.push(tripEntry)
-    localStorage.setItem(tripsKey, JSON.stringify(trips))
-
-    // Also try server booking
+    setIsInitiating(true)
     const accountEmail = user?.email || email
     try {
-      await fetch('/api/bookings', {
+      const res = await fetch('/api/bookings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -216,11 +183,67 @@ export default function Checkout() {
           firstName, lastName,
           email: accountEmail,
           phone, passport, nationality,
-          paymentId: paymentData?.paymentId,
-          paymentMethod: paymentData?.method || 'card',
         }),
       })
-    } catch { /* already saved locally */ }
+      const data = await res.json()
+      if (data.success && data.ticketId) {
+        setTicketId(data.ticketId)
+
+        // Save to localStorage using user-specific key as pending
+        const tripsKey = `skyway_trips_${user?._id || 'guest'}`
+        const trips = JSON.parse(localStorage.getItem(tripsKey) || '[]')
+        const tripEntry = {
+          type: type === 'deal' ? 'flight' : type,
+          ticketId: data.ticketId,
+          flight: type !== 'hotel' ? item : undefined,
+          hotel: type === 'hotel' ? item : undefined,
+          checkin: booking?.searchInfo?.checkin,
+          checkout: booking?.searchInfo?.checkout,
+          pricing: { ...pricing },
+          passenger: { firstName, lastName, email, phone },
+          paymentId: '',
+          paymentMethod: 'none',
+          paymentStatus: 'pending',
+          bookedAt: new Date().toISOString(),
+        }
+        trips.push(tripEntry)
+        localStorage.setItem(tripsKey, JSON.stringify(trips))
+
+        setShowPayment(true)
+      } else {
+        alert(data.error || 'Failed to initiate booking. Please try again.')
+      }
+    } catch (err) {
+      console.error('Error initiating booking:', err)
+      alert('Network error. Failed to initiate booking. Please check your connection.')
+    } finally {
+      setIsInitiating(false)
+    }
+  }
+
+  const handlePaymentSuccess = async (paymentData) => {
+    sessionStorage.removeItem('skyway_active_payment')
+    setShowPayment(false)
+    
+    // Use the ticketId generated in handleProceed
+    const id = ticketId || paymentData?.bookingId
+
+    // Update localStorage status to confirmed
+    const tripsKey = `skyway_trips_${user?._id || 'guest'}`
+    const trips = JSON.parse(localStorage.getItem(tripsKey) || '[]')
+    const updated = trips.map(t => {
+      if (t.ticketId === id || t.ticketId === paymentData?.bookingId) {
+        return {
+          ...t,
+          ticketId: id,
+          paymentId: paymentData?.paymentId || t.paymentId,
+          paymentMethod: paymentData?.method || 'card',
+          paymentStatus: 'confirmed',
+        }
+      }
+      return t
+    })
+    localStorage.setItem(tripsKey, JSON.stringify(updated))
 
     setConfirmed(true)
   }
@@ -228,34 +251,31 @@ export default function Checkout() {
   const handlePaymentFailed = async (paymentData) => {
     sessionStorage.removeItem('skyway_active_payment')
     setShowPayment(false)
-    const failedId = paymentData?.paymentId || 'FAIL_' + Math.random().toString(36).substr(2, 8).toUpperCase()
+    
+    const id = ticketId || paymentData?.paymentId || 'FAIL_' + Math.random().toString(36).substr(2, 8).toUpperCase()
 
-    // Save failed booking to localStorage for history
+    // Update localStorage status to failed
     const tripsKey = `skyway_trips_${user?._id || 'guest'}`
     const trips = JSON.parse(localStorage.getItem(tripsKey) || '[]')
-    const failedEntry = {
-      type: type === 'deal' ? 'flight' : type,
-      ticketId: failedId,
-      flight: type !== 'hotel' ? item : undefined,
-      hotel: type === 'hotel' ? item : undefined,
-      checkin: booking?.searchInfo?.checkin,
-      checkout: booking?.searchInfo?.checkout,
-      pricing: { ...pricing },
-      passenger: { firstName, lastName, email, phone },
-      paymentId: failedId,
-      paymentMethod: paymentData?.method || 'upi',
-      paymentStatus: 'failed',
-      failureReason: paymentData?.failureReason,
-      failureCode: paymentData?.failureCode,
-      bookedAt: new Date().toISOString(),
-    }
-    trips.push(failedEntry)
-    localStorage.setItem(tripsKey, JSON.stringify(trips))
+    const updated = trips.map(t => {
+      if (t.ticketId === id || t.ticketId === ticketId) {
+        return {
+          ...t,
+          paymentId: paymentData?.paymentId || t.paymentId,
+          paymentMethod: paymentData?.method || 'upi',
+          paymentStatus: 'failed',
+          failureReason: paymentData?.failureReason,
+          failureCode: paymentData?.failureCode,
+        }
+      }
+      return t
+    })
+    localStorage.setItem(tripsKey, JSON.stringify(updated))
 
     setPaymentFailureInfo({
       reason: paymentData?.failureReason,
       code: paymentData?.failureCode,
-      paymentId: failedId,
+      paymentId: paymentData?.paymentId || id,
     })
     setPaymentFailed(true)
   }
@@ -270,7 +290,7 @@ export default function Checkout() {
             <>
               {/* Page Header */}
               <div className="mb-8">
-                <button onClick={() => navigate(-1)} className="text-text-muted text-sm flex items-center gap-2 mb-4 bg-transparent border-none cursor-pointer hover:text-white">
+                <button onClick={() => navigate(-1)} className="text-text-muted text-sm flex items-center gap-2 mb-4 bg-transparent border-none cursor-pointer hover:text-text-primary">
                   ← Back to {type === 'hotel' ? 'Hotels' : type === 'deal' ? 'Deals' : 'Search Results'}
                 </button>
                 <h1 className="font-syne text-[clamp(1.8rem,4vw,2.5rem)] font-extrabold">
@@ -278,7 +298,7 @@ export default function Checkout() {
                 </h1>
               </div>
 
-              {showPayment ? (
+              {showPayment && (
                 <PaymentModal
                   amount={pricing.total}
                   bookingInfo={{
@@ -288,6 +308,7 @@ export default function Checkout() {
                     type,
                   }}
                   passengerInfo={{ firstName, lastName, email, phone, registeredPhone: user?.phone }}
+                  bookingId={ticketId}
                   onSuccess={handlePaymentSuccess}
                   onPaymentFailed={handlePaymentFailed}
                   onClose={() => {
@@ -295,8 +316,9 @@ export default function Checkout() {
                     setShowPayment(false)
                   }}
                 />
-              ) : (
-                <div className="checkout-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: '2rem', alignItems: 'start' }}>
+              )}
+
+              <div className="checkout-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: '2rem', alignItems: 'start' }}>
 
                   {/*  Left Column: Booking Details + Form  */}
                   <div className="flex flex-col gap-5">
@@ -352,10 +374,16 @@ export default function Checkout() {
                               🔄 Round Trip
                             </span>
                           )}
+                          {item.cabin && (
+                            <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold" style={{ background: 'rgba(139,92,246,0.12)', color: '#a78bfa', border: '1px solid rgba(139,92,246,0.25)' }}>
+                              💺 {item.cabin}
+                            </span>
+                          )}
                           {item.baggage && <span>🧳 {item.baggage}</span>}
                           {item.meal && <span>🍽 {item.meal}</span>}
                           {item.category && <span>📁 {item.category}</span>}
                         </div>
+                        {item.stops !== 'Direct' && renderJourneyTimeline(item)}
                         {item.tripType === 'round' && item.returnDate && (
                           <div className="mt-4 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
                             <div className="text-xs font-bold text-accent mb-2">RETURN FLIGHT</div>
@@ -507,7 +535,7 @@ export default function Checkout() {
                             <span>-₹{pricing.discount.toLocaleString('en-IN')}</span>
                           </div>
                         )}
-                        <div className="border-t border-white/8 my-2"></div>
+                        <div className="border-t border-divider-color my-2"></div>
                         <div className="price-line total"><span>Total</span><span>₹{pricing.total.toLocaleString('en-IN')}</span></div>
                         {pricing.passengerCount > 1 && (
                           <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', textAlign: 'right' }}>
@@ -534,18 +562,18 @@ export default function Checkout() {
                             <span>-₹{pricing.discount.toLocaleString('en-IN')}</span>
                           </div>
                         )}
-                        <div className="border-t border-white/8 my-2"></div>
+                        <div className="border-t border-divider-color my-2"></div>
                         <div className="price-line total"><span>Total</span><span>₹{pricing.total.toLocaleString('en-IN')}</span></div>
                       </div>
                     )}
 
-                    <button className="confirm-btn" onClick={handleProceed} style={{ marginTop: '1.5rem' }}>
-                      Proceed to Payment →
+                    <button className="confirm-btn" onClick={handleProceed} disabled={isInitiating} style={{ marginTop: '1.5rem' }}>
+                      {isInitiating ? 'Processing...' : 'Proceed to Payment →'}
                     </button>
 
                     <div className="flex items-center gap-2 mt-4 text-xs text-text-muted justify-center">
                       <span>🔒</span>
-                      <span>256-bit SSL encrypted · Secured by JusPay</span>
+                      <span>256-bit SSL encrypted · Secured by Razorpay</span>
                     </div>
                   </div>
 
@@ -557,7 +585,6 @@ export default function Checkout() {
                   </div>
                 </div>
               </div>
-              )}
             </>
           )}
 
@@ -578,10 +605,10 @@ export default function Checkout() {
                 <div style={{ height: '2.5rem' }}></div>
 
                 {/* Booking Details Card */}
-                <div className="rounded-2xl text-left flex flex-col items-stretch gap-0" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', boxShadow: '0 8px 32px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
+                <div className="rounded-2xl text-left flex flex-col items-stretch gap-0" style={{ background: 'var(--filter-group-bg)', border: '1px solid var(--divider-color)', boxShadow: '0 8px 32px rgba(0,0,0,0.05)', overflow: 'hidden' }}>
                   
                   {/* Trip Info Section */}
-                  <div style={{ padding: '1.5rem 2.5rem', background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                  <div style={{ padding: '1.5rem 2.5rem', background: 'var(--filter-group-bg)', borderBottom: '1px solid var(--divider-color)' }}>
                     {type === 'flight' || type === 'deal' ? (
                       <div className="flex flex-col gap-4">
                         <div className="flex justify-between items-center flex-wrap gap-4">
@@ -598,8 +625,9 @@ export default function Checkout() {
                             <div className="text-sm">{item.to || item.title?.split('→')[1]?.trim()}</div>
                           </div>
                         </div>
+                        {item.stops !== 'Direct' && renderJourneyTimeline(item)}
                         {item.tripType === 'round' && item.returnDate && (
-                          <div className="pt-4 mt-1 border-t" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
+                          <div className="pt-4 mt-1 border-t" style={{ borderColor: 'var(--divider-color)' }}>
                             <div className="flex justify-between items-center flex-wrap gap-4">
                               <div>
                                 <div className="text-xs font-medium text-text-muted tracking-wider uppercase mb-1">Return</div>
@@ -643,8 +671,8 @@ export default function Checkout() {
                       <div className="text-sm text-text-muted mt-1">{email}</div>
                     </div>
 
-                    <div className="hidden md:block w-px h-16" style={{ background: 'rgba(255,255,255,0.1)' }}></div>
-                    <div className="md:hidden h-px w-full" style={{ background: 'rgba(255,255,255,0.1)' }}></div>
+                    <div className="hidden md:block w-px h-16" style={{ background: 'var(--divider-color)' }}></div>
+                    <div className="md:hidden h-px w-full" style={{ background: 'var(--divider-color)' }}></div>
 
                     <div className="text-left md:text-right w-full md:w-auto">
                       <div className="text-xs font-medium text-text-muted tracking-wider uppercase mb-1">Total Paid</div>
@@ -687,12 +715,12 @@ export default function Checkout() {
                   {paymentFailureInfo.code === 'insufficient_funds' ? '💳 Insufficient Balance' :
                     paymentFailureInfo.code === 'daily_limit_exceeded' ? '🚫 Daily Limit Exceeded' : '❌ Transaction Declined'}
                 </div>
-                <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.875rem', lineHeight: 1.7, marginBottom: '0.75rem' }}>
+                <div style={{ color: 'var(--color-text-muted)', fontSize: '0.875rem', lineHeight: 1.7, marginBottom: '0.75rem' }}>
                   {paymentFailureInfo.reason}
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'rgba(255,255,255,0.3)', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '0.75rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--color-text-muted)', borderTop: '1px solid var(--divider-color)', paddingTop: '0.75rem', opacity: 0.8 }}>
                   <span>Reference ID</span>
-                  <span style={{ fontFamily: 'monospace', color: 'rgba(255,255,255,0.5)' }}>{paymentFailureInfo.paymentId}</span>
+                  <span style={{ fontFamily: 'monospace', color: 'var(--text-primary)' }}>{paymentFailureInfo.paymentId}</span>
                 </div>
               </div>
 
@@ -709,9 +737,9 @@ export default function Checkout() {
               </div>
 
               {/* What to do next */}
-              <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.8rem', marginBottom: '2rem' }}>
+              <div style={{ color: 'var(--color-text-muted)', fontSize: '0.8rem', marginBottom: '2rem' }}>
                 💡 Try a different payment method, ensure sufficient balance, or contact your bank.
-                <br />A failure notification has been sent to <strong style={{ color: 'rgba(255,255,255,0.6)' }}>{email}</strong>.
+                <br />A failure notification has been sent to <strong style={{ color: 'var(--text-primary)' }}>{email}</strong>.
               </div>
 
               <div className="flex gap-4 justify-center flex-wrap">
@@ -734,4 +762,109 @@ export default function Checkout() {
       <Footer />
     </>
   )
+}
+
+function addTimeToStr(timeStr, durationStr) {
+  if (!timeStr || !durationStr) return timeStr;
+  try {
+    const parts = timeStr.split(':');
+    if (parts.length < 2) return timeStr;
+    const h = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10);
+    const durH = parseInt(durationStr.match(/(\d+)h/)?.[1] || 0, 10);
+    const durM = parseInt(durationStr.match(/(\d+)m/)?.[1] || 0, 10);
+    
+    let totalMins = (h * 60 + m) + (durH * 60 + durM);
+    let finalH = Math.floor(totalMins / 60) % 24;
+    let finalM = totalMins % 60;
+    return `${String(finalH).padStart(2, '0')}:${String(finalM).padStart(2, '0')}`;
+  } catch (e) {
+    return timeStr;
+  }
+}
+
+function renderJourneyTimeline(item) {
+  if (!item || !item.layovers || item.layovers.length === 0) return null;
+  
+  const times = [];
+  
+  if (item.layovers.length === 1) {
+    const dep1 = item.dep;
+    const arr1 = addTimeToStr(dep1, item.segmentDurations?.[0] || '1h 30m');
+    times.push({ type: 'flight', from: item.from, to: item.layovers[0].city, dep: dep1, arr: arr1, dur: item.segmentDurations?.[0] || '1h 30m' });
+    
+    times.push({ type: 'layover', city: item.layovers[0].city, dur: item.layovers[0].duration });
+    
+    const dep2 = addTimeToStr(arr1, item.layovers[0].duration);
+    const arr2 = item.arr;
+    times.push({ type: 'flight', from: item.layovers[0].city, to: item.to, dep: dep2, arr: arr2, dur: item.segmentDurations?.[1] || '1h 30m' });
+  } else if (item.layovers.length > 1) {
+    const d1 = item.dep;
+    const a1 = addTimeToStr(d1, item.segmentDurations?.[0] || '1h 10m');
+    times.push({ type: 'flight', from: item.from, to: item.layovers[0].city, dep: d1, arr: a1, dur: item.segmentDurations?.[0] || '1h 10m' });
+    
+    times.push({ type: 'layover', city: item.layovers[0].city, dur: item.layovers[0].duration });
+    
+    const d2 = addTimeToStr(a1, item.layovers[0].duration);
+    const a2 = addTimeToStr(d2, item.segmentDurations?.[1] || '1h 15m');
+    times.push({ type: 'flight', from: item.layovers[0].city, to: item.layovers[1].city, dep: d2, arr: a2, dur: item.segmentDurations?.[1] || '1h 15m' });
+    
+    times.push({ type: 'layover', city: item.layovers[1].city, dur: item.layovers[1].duration });
+    
+    const d3 = addTimeToStr(a2, item.layovers[1].duration);
+    const a3 = item.arr;
+    times.push({ type: 'flight', from: item.layovers[1].city, to: item.to, dep: d3, arr: a3, dur: item.segmentDurations?.[2] || '1h 10m' });
+  }
+  
+  return (
+    <div 
+      style={{
+        marginTop: '1.25rem',
+        padding: '1.25rem',
+        background: 'rgba(255, 255, 255, 0.02)',
+        borderRadius: '16px',
+        border: '1px solid var(--card-border)',
+      }}
+    >
+      <div style={{ fontSize: '0.8rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-accent)', letterSpacing: '0.5px', marginBottom: '0.75rem' }}>
+        ✈ Journey Timeline
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', position: 'relative', paddingLeft: '1.25rem' }}>
+        <div style={{ position: 'absolute', left: '4px', top: '8px', bottom: '8px', width: '2px', background: 'var(--divider-color)' }}></div>
+        
+        {times.map((timelineItem, idx) => {
+          if (timelineItem.type === 'flight') {
+            return (
+              <div key={idx} style={{ position: 'relative' }}>
+                <div style={{ position: 'absolute', left: '-23px', top: '5px', width: '8px', height: '8px', borderRadius: '50%', background: 'var(--color-accent)', boxShadow: '0 0 6px var(--color-accent)' }}></div>
+                
+                <div className="flex justify-between items-center flex-wrap gap-2 text-sm">
+                  <span className="font-semibold text-text-primary">{timelineItem.from} → {timelineItem.to}</span>
+                  <span className="text-xs text-text-muted">{timelineItem.dep} - {timelineItem.arr} ({timelineItem.dur})</span>
+                </div>
+              </div>
+            );
+          } else {
+            return (
+              <div key={idx} style={{ 
+                position: 'relative',
+                padding: '0.5rem 0.75rem',
+                background: 'rgba(245, 166, 35, 0.06)',
+                border: '1px solid rgba(245, 166, 35, 0.15)',
+                borderRadius: '10px',
+                color: 'var(--color-accent)',
+                fontSize: '0.78rem',
+                fontWeight: 500,
+                margin: '0.25rem 0'
+              }}>
+                <div style={{ position: 'absolute', left: '-22px', top: '10px', width: '6px', height: '6px', borderRadius: '50%', background: '#ffbe4d' }}></div>
+                
+                <span>⏳ <strong>Layover:</strong> {timelineItem.dur} in {timelineItem.city}</span>
+              </div>
+            );
+          }
+        })}
+      </div>
+    </div>
+  );
 }

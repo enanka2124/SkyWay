@@ -90,8 +90,10 @@ export default function MyTrips() {
   const tripsKey = `skyway_trips_${user?._id || 'guest'}`
 
   // Transform a server booking document into the client trip format
-  const serverBookingToTrip = (b) => ({
-    ticketId: b.ticketId,
+  const serverBookingToTrip = (b) => {
+    if (b.paymentStatus === 'pending') return null;
+    return {
+      ticketId: b.ticketId,
     type: b.bookingType || 'flight',
     flight: b.flight ? {
       airline: b.flight.airline,
@@ -102,6 +104,12 @@ export default function MyTrips() {
       arr: b.flight.arr,
       duration: b.flight.duration,
       stops: b.flight.stops,
+      cabin: b.flight.cabin,
+      baggage: b.flight.baggage,
+      meal: b.flight.meal,
+      layover: b.flight.layover,
+      layovers: b.flight.layovers,
+      segmentDurations: b.flight.segmentDurations,
     } : undefined,
     hotel: b.hotel ? {
       name: b.hotel.name,
@@ -118,10 +126,14 @@ export default function MyTrips() {
     },
     passenger: b.passenger,
     status: b.paymentStatus === 'cancelled' ? 'cancelled' : 'confirmed',
+    paymentMethod: b.paymentMethod,
+    paymentId: b.paymentId,
+    paymentStatus: b.paymentStatus,
     cancelledAt: b.cancelledAt || null,
     bookedAt: b.bookedAt,
     _source: 'server',
-  })
+  };
+  }
 
   useEffect(() => {
     if (!user) return;
@@ -130,7 +142,7 @@ export default function MyTrips() {
       setTripsLoading(true)
       try {
         // 1. Load from localStorage
-        const localTrips = JSON.parse(localStorage.getItem(tripsKey) || '[]')
+        const localTrips = JSON.parse(localStorage.getItem(tripsKey) || '[]').filter(t => t.paymentStatus !== 'pending')
 
         // 2. Fetch from server by user email
         let serverTrips = []
@@ -138,7 +150,7 @@ export default function MyTrips() {
           const res = await fetch(`/api/bookings?email=${encodeURIComponent(user.email)}`)
           const data = await res.json()
           if (data.success && Array.isArray(data.bookings)) {
-            serverTrips = data.bookings.map(serverBookingToTrip)
+            serverTrips = data.bookings.map(serverBookingToTrip).filter(Boolean)
           }
         } catch (err) {
           console.warn('[MyTrips] Server fetch failed, using localStorage only:', err.message)
@@ -173,7 +185,7 @@ export default function MyTrips() {
         localStorage.setItem(tripsKey, JSON.stringify(merged))
       } catch (err) {
         console.error('[MyTrips] Failed to load trips:', err)
-        const localTrips = JSON.parse(localStorage.getItem(tripsKey) || '[]')
+        const localTrips = JSON.parse(localStorage.getItem(tripsKey) || '[]').filter(t => t.paymentStatus !== 'pending')
         setTrips(localTrips)
       } finally {
         setTripsLoading(false)
@@ -290,7 +302,12 @@ export default function MyTrips() {
                 const isProcessing = cancellingId === i
 
                 return (
-                  <div key={i} className="flight-card" style={{ opacity: isCancelled ? 0.6 : 1 }}>
+                  <div 
+                    key={i} 
+                    className="flight-card" 
+                    style={{ opacity: isCancelled ? 0.6 : 1, cursor: 'pointer' }}
+                    onClick={() => navigate(`/my-trips/${trip.ticketId || trip.bookingId}`, { state: trip })}
+                  >
                     <div className="flex items-start justify-between flex-wrap gap-3">
                       <div className="flex items-center gap-4">
                         {(() => {
@@ -309,13 +326,14 @@ export default function MyTrips() {
                               </div>
                               <div className="text-sm text-text-muted mt-1">
                                 <div className="mb-0.5">
-                                  {trip.flight?.tripType === 'round' && <span className="font-medium text-white/80">Outbound: </span>}
+                                  {trip.flight?.tripType === 'round' && <span className="font-medium" style={{ color: 'var(--text-primary)', opacity: 0.85 }}>Outbound: </span>}
                                   {trip.flight?.description ? trip.flight.description : `${trip.flight?.airline} · ${trip.flight?.dep} - ${trip.flight?.arr}`}
+                                  {trip.flight?.cabin && <span style={{ color: 'var(--color-accent)', fontWeight: 600 }}> · {trip.flight.cabin}</span>}
                                   <span className="ml-1">· {new Date(trip.flight?.searchedDate || trip.bookedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
                                 </div>
                                 {trip.flight?.tripType === 'round' && trip.flight?.returnDate && (
                                   <div>
-                                    <span className="font-medium text-white/80">Return ({trip.flight?.to?.split(',')[0]} → {trip.flight?.from?.split(',')[0]}): </span> 
+                                    <span className="font-medium" style={{ color: 'var(--text-primary)', opacity: 0.85 }}>Return ({trip.flight?.to?.split(',')[0]} → {trip.flight?.from?.split(',')[0]}): </span> 
                                     {trip.flight?.airline} · {trip.flight?.arr} - {trip.flight?.dep}
                                     <span className="ml-1">· {new Date(trip.flight.returnDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
                                   </div>
@@ -345,7 +363,7 @@ export default function MyTrips() {
                     </div>
 
                     {/* Status + Cancel Row */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between mt-6 pt-4 gap-4" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between mt-6 pt-4 gap-4" style={{ borderTop: '1px solid var(--divider-color)' }}>
                       <div className="flex items-center gap-3">
                         {getStatusBadge(trip)}
                         {isCancelled && trip.cancelledAt && (
@@ -363,7 +381,7 @@ export default function MyTrips() {
                             border: '1px solid rgba(245,166,35,0.3)',
                             color: 'var(--color-accent)',
                           }}
-                          onClick={() => navigate(`/my-trips/${trip.ticketId}`, { state: trip })}
+                          onClick={() => navigate(`/my-trips/${trip.ticketId || trip.bookingId}`, { state: trip })}
                         >
                           View Details →
                         </button>
@@ -406,18 +424,18 @@ export default function MyTrips() {
               <p className="text-text-muted text-sm" style={{ marginBottom: '1.5rem' }}>
                 Are you sure you want to cancel this {trips[cancelConfirm]?.type === 'flight' ? 'flight' : 'hotel'} booking?
                 {trips[cancelConfirm]?.type === 'flight' ? (
-                  <span className="block mt-2 font-medium text-white">
+                  <span className="block mt-2 font-medium" style={{ color: 'var(--text-primary)' }}>
                     {trips[cancelConfirm]?.flight?.title ? trips[cancelConfirm].flight.title : `${trips[cancelConfirm]?.flight?.from} → ${trips[cancelConfirm]?.flight?.to}`}
                   </span>
                 ) : (
-                  <span className="block mt-2 font-medium text-white">
+                  <span className="block mt-2 font-medium" style={{ color: 'var(--text-primary)' }}>
                     {trips[cancelConfirm]?.hotel?.name}
                   </span>
                 )}
               </p>
 
               {/* Refund Info */}
-              <div className="rounded-xl text-left text-sm" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', padding: '1rem 1.25rem', marginBottom: '1.5rem' }}>
+              <div className="rounded-xl text-left text-sm" style={{ background: 'var(--filter-group-bg)', border: '1px solid var(--divider-color)', padding: '1rem 1.25rem', marginBottom: '1.5rem' }}>
                 <div className="flex justify-between mb-2">
                   <span className="text-text-muted">Booking Amount</span>
                   <span className="font-medium">₹{(trips[cancelConfirm]?.pricing?.total || 0).toLocaleString('en-IN')}</span>
@@ -428,7 +446,7 @@ export default function MyTrips() {
                     -₹{Math.round((trips[cancelConfirm]?.pricing?.total || 0) * 0.1).toLocaleString('en-IN')}
                   </span>
                 </div>
-                <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '0.5rem 0' }}></div>
+                <div style={{ height: 1, background: 'var(--divider-color)', margin: '0.5rem 0' }}></div>
                 <div className="flex justify-between font-bold">
                   <span>Refund Amount</span>
                   <span style={{ color: '#22d07a' }}>
@@ -445,7 +463,7 @@ export default function MyTrips() {
                 <button
                   className="confirm-btn flex-1"
                   onClick={() => setCancelConfirm(null)}
-                  style={{ background: 'transparent', border: '1.5px solid rgba(255,255,255,0.15)', color: 'white' }}
+                  style={{ background: 'transparent', border: '1.5px solid var(--divider-color)', color: 'var(--text-primary)' }}
                 >
                   Keep Booking
                 </button>

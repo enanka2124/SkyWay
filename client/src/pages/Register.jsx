@@ -199,7 +199,7 @@ export default function Register() {
           {/* Back button */}
           <button
             onClick={() => navigate(-1)}
-            className="text-text-muted text-sm flex items-center gap-2 mb-4 bg-transparent border-none cursor-pointer hover:text-white transition-colors"
+            className="text-text-muted text-sm flex items-center gap-2 mb-4 bg-transparent border-none cursor-pointer hover:text-text-primary transition-colors"
           >
             ← Back
           </button>
@@ -225,19 +225,19 @@ export default function Register() {
                     className="flex items-center justify-center rounded-full text-sm font-bold shrink-0"
                     style={{
                       width: 36, height: 36,
-                      background: s.id === step ? 'var(--color-accent)' : s.id < step ? 'rgba(34,208,122,0.2)' : 'rgba(255,255,255,0.06)',
+                      background: s.id === step ? 'var(--color-accent)' : s.id < step ? 'rgba(34,208,122,0.2)' : 'var(--btn-ghost-bg)',
                       color: s.id === step ? '#0a1628' : s.id < step ? '#22d07a' : 'var(--color-text-muted)',
                       border: s.id < step ? '2px solid #22d07a' : '2px solid transparent',
                     }}
                   >
                     {s.id < step ? '✓' : s.icon}
                   </div>
-                  <span className="text-xs font-medium hidden sm:inline" style={{ color: s.id <= step ? 'white' : 'var(--color-text-muted)' }}>
+                  <span className="text-xs font-medium hidden sm:inline" style={{ color: s.id <= step ? 'var(--text-primary)' : 'var(--color-text-muted)' }}>
                     {s.label}
                   </span>
                 </div>
                 {i < STEPS.length - 1 && (
-                  <div style={{ flex: 1, height: 2, margin: '0 0.75rem', background: s.id < step ? '#22d07a' : 'rgba(255,255,255,0.08)', borderRadius: 2 }}></div>
+                  <div style={{ flex: 1, height: 2, margin: '0 0.75rem', background: s.id < step ? '#22d07a' : 'var(--divider-color)', borderRadius: 2 }}></div>
                 )}
               </div>
             ))}
@@ -300,7 +300,7 @@ export default function Register() {
                     <label className="text-xs font-medium text-text-muted tracking-wider uppercase">Password *</label>
                     <div className="relative">
                       <input type={showPassword ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} placeholder="Min 6 chars" className="sky-input" style={{ paddingRight: '2.5rem' }} />
-                      <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-2 top-1/2 -translate-y-1/2 bg-transparent border-none text-text-muted text-sm cursor-pointer hover:text-white">
+                      <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-2 top-1/2 -translate-y-1/2 bg-transparent border-none text-text-muted text-sm cursor-pointer hover:text-text-primary">
                         {showPassword ? '🙈' : '👁'}
                       </button>
                     </div>
@@ -374,8 +374,8 @@ export default function Register() {
                   className="cursor-pointer rounded-2xl flex flex-col items-center justify-center gap-3 transition-all duration-200"
                   style={{
                     padding: '2.5rem 2rem',
-                    border: `2px dashed ${dragActive ? 'var(--color-accent)' : aadhaarFile ? '#22d07a' : 'rgba(255,255,255,0.12)'}`,
-                    background: dragActive ? 'rgba(245,166,35,0.05)' : aadhaarFile ? 'rgba(34,208,122,0.05)' : 'rgba(255,255,255,0.02)',
+                    border: `2px dashed ${dragActive ? 'var(--color-accent)' : aadhaarFile ? '#22d07a' : 'var(--divider-color)'}`,
+                    background: dragActive ? 'rgba(245,166,35,0.05)' : aadhaarFile ? 'rgba(34,208,122,0.05)' : 'var(--filter-group-bg)',
                   }}
                 >
                   <input ref={fileRef} type="file" accept=".pdf" onChange={handleFileSelect} style={{ display: 'none' }} />
@@ -395,7 +395,7 @@ export default function Register() {
                   )}
                 </div>
 
-                <div className="rounded-xl px-4 py-3 text-xs text-text-muted" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                <div className="rounded-xl px-4 py-3 text-xs text-text-muted" style={{ background: 'var(--filter-group-bg)', border: '1px solid var(--divider-color)' }}>
                   🔒 Your document is securely uploaded and used only for verification purposes.
                 </div>
 

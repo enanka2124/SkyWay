@@ -92,7 +92,7 @@ export default function PopularRoutes({ onQuickSearch }) {
     <section className="relative z-10" id="popular-section" style={{ padding: 'clamp(1.5rem, 4vw, 2.5rem) 0' }}>
       <div className="container-main">
         {/* Header */}
-        <div className="flex items-end justify-between mb-8 flex-wrap gap-3">
+        <div className="flex items-end justify-between flex-wrap gap-3" style={{ marginBottom: '2.5rem' }}>
           <div>
             <h2 className="font-syne font-bold tracking-tight" style={{ fontSize: 'clamp(1.4rem,3vw,1.75rem)' }}>
               Popular <span className="text-accent">Routes</span>

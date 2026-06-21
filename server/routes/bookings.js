@@ -50,7 +50,9 @@ router.post('/', async (req, res) => {
         discount,
         total,
       },
-      paymentStatus: 'completed'
+      paymentStatus: 'pending',
+      paymentMethod: 'none',
+      paymentId: '',
     };
 
     if (flight) {
@@ -63,6 +65,12 @@ router.post('/', async (req, res) => {
         arr: flight.arr,
         duration: flight.duration,
         stops: flight.stops,
+        cabin: flight.cabin,
+        baggage: flight.baggage || '15 kg',
+        meal: flight.meal || 'Standard',
+        layover: flight.layover,
+        layovers: flight.layovers,
+        segmentDurations: flight.segmentDurations,
       };
     }
 
@@ -93,7 +101,7 @@ router.post('/', async (req, res) => {
 router.get('/', async (req, res) => {
   try {
     const userEmail = req.query.email;
-    let query = {};
+    let query = { paymentStatus: { $ne: 'pending' } };
     if (userEmail) {
       query.userEmail = userEmail;
     }
@@ -136,6 +144,49 @@ router.delete('/:ticketId', async (req, res) => {
     res.json({ success: true, message: 'Booking deleted' });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to delete booking' });
+  }
+});
+
+// PATCH /api/bookings/:ticketId/passenger — Update passenger details
+router.patch('/:ticketId/passenger', async (req, res) => {
+  try {
+    const { firstName, lastName, passport, nationality } = req.body;
+    const booking = await Booking.findOne({ ticketId: req.params.ticketId });
+    if (!booking) {
+      return res.status(404).json({ success: false, error: 'Booking not found' });
+    }
+    
+    // Validation
+    if (firstName && !firstName.trim()) {
+      return res.status(400).json({ success: false, error: 'First name cannot be empty' });
+    }
+    if (lastName && !lastName.trim()) {
+      return res.status(400).json({ success: false, error: 'Last name cannot be empty' });
+    }
+
+    if (booking.passenger) {
+      if (firstName !== undefined) booking.passenger.firstName = firstName.trim();
+      if (lastName !== undefined) booking.passenger.lastName = lastName.trim();
+      if (passport !== undefined) booking.passenger.passport = passport.trim();
+      if (nationality !== undefined) booking.passenger.nationality = nationality;
+    } else {
+      booking.passenger = {
+        firstName: firstName?.trim() || '',
+        lastName: lastName?.trim() || '',
+        email: booking.userEmail || '',
+        phone: '',
+        passport: passport?.trim() || '',
+        nationality: nationality || '',
+      };
+    }
+
+    booking.markModified('passenger');
+    await booking.save();
+    
+    res.json({ success: true, booking });
+  } catch (err) {
+    console.error('Error updating booking passenger details:', err);
+    res.status(500).json({ success: false, error: 'Failed to update passenger details' });
   }
 });
 

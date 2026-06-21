@@ -204,20 +204,40 @@ export default function SearchCard({ onSearch, initialFrom, initialTo, initialDa
 
     return (
       <div
-        className="absolute top-full left-0 mt-2 p-4 rounded-xl shadow-2xl z-50"
+        className="absolute top-full left-0 mt-2 p-4 rounded-xl z-50"
         style={{
           width: 'min(280px, calc(100vw - 2rem))',
-          background: '#0b1d3a',
-          border: '1px solid rgba(255,255,255,0.12)',
-          boxShadow: '0 20px 60px rgba(0,0,0,0.6)'
+          background: 'var(--modal-bg)',
+          border: '1px solid var(--modal-border)',
+          boxShadow: 'var(--card-shadow)',
         }}
       >
-        <div className="flex justify-between items-center mb-4 font-bold text-white">
-          <button type="button" onClick={handlePrev} disabled={!canPrev} className={`p-1.5 rounded-md leading-none transition-colors border-none bg-transparent text-white ${!canPrev ? 'opacity-30 cursor-not-allowed' : 'hover:bg-white/10 cursor-pointer'}`}>&lt;</button>
+        <div className="flex justify-between items-center mb-4 font-bold" style={{ color: 'var(--text-primary)' }}>
+          <button
+            type="button"
+            onClick={handlePrev}
+            disabled={!canPrev}
+            className={`p-1.5 rounded-md leading-none transition-colors border-none bg-transparent ${!canPrev ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer'}`}
+            style={{ color: 'var(--text-primary)' }}
+            onMouseEnter={(e) => { if (canPrev) e.currentTarget.style.background = 'var(--btn-ghost-bg)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+          >
+            &lt;
+          </button>
           <span>{viewDate.toLocaleString('default', { month: 'long', year: 'numeric' })}</span>
-          <button type="button" onClick={handleNext} disabled={!canNext} className={`p-1.5 rounded-md leading-none transition-colors border-none bg-transparent text-white ${!canNext ? 'opacity-30 cursor-not-allowed' : 'hover:bg-white/10 cursor-pointer'}`}>&gt;</button>
+          <button
+            type="button"
+            onClick={handleNext}
+            disabled={!canNext}
+            className={`p-1.5 rounded-md leading-none transition-colors border-none bg-transparent ${!canNext ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer'}`}
+            style={{ color: 'var(--text-primary)' }}
+            onMouseEnter={(e) => { if (canNext) e.currentTarget.style.background = 'var(--btn-ghost-bg)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+          >
+            &gt;
+          </button>
         </div>
-        <div className="grid grid-cols-7 gap-1 text-center text-xs text-text-muted mb-2">
+        <div className="grid grid-cols-7 gap-1 text-center text-xs mb-2" style={{ color: 'var(--text-muted)' }}>
           {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(day => <div key={day}>{day}</div>)}
         </div>
         <div className="grid grid-cols-7 gap-1 text-center">
@@ -234,7 +254,19 @@ export default function SearchCard({ onSearch, initialFrom, initialTo, initialDa
                 key={idx}
                 onClick={(e) => { e.stopPropagation(); if (!isBlocked) { onChange(dateStr); onClose() } }}
                 disabled={isBlocked}
-                className={`p-2 rounded-lg text-sm border-none transition-all ${isBlocked ? 'opacity-30 cursor-not-allowed' : 'hover:bg-white/10 relative cursor-pointer'} ${isSelected ? 'bg-white/20 font-bold text-white ring-1 ring-white/30' : 'text-white/80 bg-transparent'}`}
+                className={`p-2 rounded-lg text-sm border-none transition-all ${isBlocked ? 'opacity-20 cursor-not-allowed' : 'relative cursor-pointer'}`}
+                style={{
+                  background: isSelected ? 'var(--color-accent)' : 'transparent',
+                  color: isSelected ? '#060e1e' : 'var(--text-primary)',
+                  fontWeight: isSelected ? '700' : '500',
+                  boxShadow: isSelected ? '0 4px 12px rgba(245,166,35,0.3)' : 'none',
+                }}
+                onMouseEnter={(e) => {
+                  if (!isSelected && !isBlocked) e.currentTarget.style.background = 'var(--btn-ghost-bg)';
+                }}
+                onMouseLeave={(e) => {
+                  if (!isSelected && !isBlocked) e.currentTarget.style.background = 'transparent';
+                }}
               >
                 {dayNum}
                 {!isBlocked && (

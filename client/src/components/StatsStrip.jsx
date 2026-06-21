@@ -8,11 +8,11 @@ export default function StatsStrip() {
 
   return (
     <div
-      className="relative z-10"
+      className="relative z-10 transition-colors duration-300"
       style={{
-        background: 'rgba(255,255,255,0.025)',
-        borderTop: '1px solid rgba(255,255,255,0.07)',
-        borderBottom: '1px solid rgba(255,255,255,0.07)',
+        background: 'var(--btn-ghost-bg)',
+        borderTop: '1px solid var(--divider-color)',
+        borderBottom: '1px solid var(--divider-color)',
         padding: '2.25rem 0',
         margin: '2rem 0',
       }}

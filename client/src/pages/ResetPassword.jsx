@@ -94,7 +94,7 @@ export default function ResetPassword() {
                     className="sky-input" 
                     style={{ paddingRight: '3rem' }}
                   />
-                  <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 bg-transparent border-none text-text-muted text-sm cursor-pointer hover:text-white transition-colors">
+                  <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 bg-transparent border-none text-text-muted text-sm cursor-pointer hover:text-text-primary transition-colors">
                     {showPassword ? '🙈' : '👁'}
                   </button>
                 </div>

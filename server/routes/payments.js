@@ -3,6 +3,7 @@ const router = express.Router();
 const nodemailer = require('nodemailer');
 const axios = require('axios');
 const Razorpay = require('razorpay');
+const Booking = require('../models/Booking');
 
 let razorpayInstance = null;
 if (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET) {
@@ -181,18 +182,9 @@ function simulateBalanceCheck(amount, method, upiId, cardLast4) {
   }
 
   // ── Realistic stochastic balance simulation ───────────────────────────────
-  // Generate a random "available balance" between 55% and 185% of amount.
-  // This means ~25% of transactions fail due to insufficient funds naturally.
-  const balanceMultiplier = 0.55 + Math.random() * 1.30; // 0.55 – 1.85
-  const simulatedBalance = Math.round(amt * balanceMultiplier);
-
-  if (simulatedBalance < amt) {
-    console.log(`⚠ Simulated insufficient balance: ₹${simulatedBalance} < ₹${amt}`);
-    return { sufficient: false, reason: 'insufficient_funds', balance: simulatedBalance };
-  }
-
-  console.log(`✅ Simulated balance sufficient: ₹${simulatedBalance} >= ₹${amt}`);
-  return { sufficient: true, balance: simulatedBalance };
+  // In live payment mode, we do not stochastically fail transactions.
+  // Always return sufficient: true, unless a deterministic test override matches.
+  return { sufficient: true, balance: amt * 10 };
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -836,7 +828,7 @@ router.post('/send-otp', async (req, res) => {
 
   const orderId   = 'order_' + Math.random().toString(36).substr(2, 12).toUpperCase();
   const paymentId = 'pay_'   + Math.random().toString(36).substr(2, 12).toUpperCase();
-  const bookingId = (bookingType === 'hotel' ? 'HTL' : 'SKY') + Math.random().toString(36).substr(2, 8).toUpperCase();
+  const bookingId = req.body.bookingId || ((bookingType === 'hotel' ? 'HTL' : 'SKY') + Math.random().toString(36).substr(2, 8).toUpperCase());
 
   otpStore.set(sessionId, {
     otp, expiresAt, attempts: 0,
@@ -1000,6 +992,11 @@ router.post('/verify-otp', async (req, res) => {
       dispatchSms(phone, `SkyWay: Payment of Rs.${Number(amount).toLocaleString('en-IN')} FAILED. Reason: ${balanceCheck.reason === 'insufficient_funds' ? 'Insufficient funds' : 'Declined'}. No amount deducted. -SkyWay`),
     ]).catch(() => {});
 
+    await Booking.findOneAndUpdate(
+      { ticketId: bookingId },
+      { paymentStatus: 'failed', paymentMethod: method || 'upi', paymentId }
+    ).catch(err => console.error('Error updating failed booking status:', err));
+
     console.log(`❌ Payment FAILED ${paymentId} | Reason: ${balanceCheck.reason} | Balance: ₹${balanceCheck.balance} | Required: ₹${amount}`);
 
     return res.json({
@@ -1041,6 +1038,11 @@ router.post('/verify-otp', async (req, res) => {
   }
 
   // Send booking confirmation via ALL channels (background)
+  await Booking.findOneAndUpdate(
+    { ticketId: bookingId },
+    { paymentStatus: 'completed', paymentMethod: method || 'card', paymentId }
+  ).catch(err => console.error('Error updating captured booking status:', err));
+
   Promise.allSettled([
     sendConfirmationEmail({ to: email, firstName, lastName: '', amount, bookingId, paymentId, method, bookingType, from, to, airline, paidAt, newBalance, bank: resolvedBank }),
     dispatchSms(phone, `SkyWay Booking ${bookingId} CONFIRMED! Amount: Rs.${Number(amount).toLocaleString('en-IN')}. Txn: ${paymentId}. Debited from ${resolvedBank}. Have a great trip! -SkyWay`),
@@ -1093,9 +1095,9 @@ router.get('/status/:orderId', async (req, res) => {
   }
 
   // Auto-transition to captured/failed if pending and time elapsed
-  if (order.status === 'pending' && Date.now() >= order.captureAt) {
+  if (order.status === 'pending' && Date.now() >= order.captureAt && order.method !== 'upi') {
     const { amount, method, paymentId, bookingId, payload } = order;
-    const { email, phone, firstName, bookingType, from, to, airline } = payload;
+    const { email, phone, firstName, bookingType, from, to, airline } = payload || {};
     
     // Simulate check
     const upiIdToCheck = payload.upiId || 'user@upi';
@@ -1113,6 +1115,11 @@ router.get('/status/:orderId', async (req, res) => {
         dispatchSms(phone, `SkyWay: Payment of Rs.${Number(amount).toLocaleString('en-IN')} FAILED. Reason: ${balanceCheck.reason === 'insufficient_funds' ? 'Insufficient funds' : 'Declined'}. No amount deducted. -SkyWay`),
       ]).catch(() => {});
 
+      await Booking.findOneAndUpdate(
+        { ticketId: bookingId },
+        { paymentStatus: 'failed', paymentMethod: method || 'card', paymentId }
+      ).catch(err => console.error('Error auto-updating failed booking:', err));
+
       console.log(`❌ [AUTO-CAPTURE] Payment FAILED ${paymentId} | Reason: ${balanceCheck.reason} | Balance: ₹${balanceCheck.balance} | Required: ₹${amount}`);
     } else {
       order.status = 'captured';
@@ -1123,6 +1130,11 @@ router.get('/status/:orderId', async (req, res) => {
 
       order.bank = resolvedBank;
       order.newBalance = newBalance;
+
+      await Booking.findOneAndUpdate(
+        { ticketId: bookingId },
+        { paymentStatus: 'completed', paymentMethod: method || 'card', paymentId }
+      ).catch(err => console.error('Error auto-updating captured booking:', err));
 
       // Send confirmation (background)
       Promise.allSettled([
@@ -1184,7 +1196,7 @@ router.post('/create-order', async (req, res) => {
 
     const orderId = order.id;
     const paymentId = 'pay_' + Math.random().toString(36).substr(2, 12).toUpperCase();
-    const bookingId = (bookingType === 'hotel' ? 'HTL' : 'SKY') + Math.random().toString(36).substr(2, 8).toUpperCase();
+    const bookingId = req.body.bookingId || ((bookingType === 'hotel' ? 'HTL' : 'SKY') + Math.random().toString(36).substr(2, 8).toUpperCase());
 
     orderStatusStore.set(orderId, {
       status: 'pending',
@@ -1277,6 +1289,11 @@ router.post('/verify-signature', async (req, res) => {
     });
   });
 
+  await Booking.findOneAndUpdate(
+    { ticketId: bookingId },
+    { paymentStatus: 'completed', paymentMethod: 'card', paymentId: razorpay_payment_id }
+  ).catch(err => console.error('Error updating booking signature verified:', err));
+
   res.json({
     success: true,
     paymentStatus: 'captured',
@@ -1293,10 +1310,91 @@ router.post('/verify-signature', async (req, res) => {
 });
 
 /**
+ * POST /api/payments/verify-upi-utr
+ * Accepts UPI transaction reference / UTR number from client
+ * Marks payment status as 'captured' and sends confirmation emails/SMS
+ */
+router.post('/verify-upi-utr', async (req, res) => {
+  const { orderId, utr, upiId } = req.body;
+  if (!orderId || !utr) {
+    return res.status(400).json({ success: false, error: 'orderId and UTR are required' });
+  }
+
+  // Validate UTR: 12-digit number
+  if (!/^\d{12}$/.test(utr)) {
+    return res.status(400).json({ success: false, error: 'Invalid UTR format. Must be a 12-digit number.' });
+  }
+
+  const order = orderStatusStore.get(orderId);
+  if (!order) {
+    return res.status(404).json({ success: false, error: 'Order session not found or expired' });
+  }
+
+  // Mark the order status as captured
+  const processedAt = new Date().toISOString();
+  const paidAt = processedAt;
+  const resolvedBank = upiId ? (resolveUpiBank(upiId)?.bank || 'UPI App') : 'UPI App';
+
+  order.status = 'captured';
+  order.paidAt = paidAt;
+  order.bank = resolvedBank;
+  order.paymentId = 'pay_utr_' + utr;
+
+  // Extract details from payload for confirmation emails
+  const { amount, payload } = order;
+  const { email, phone, firstName, bookingType, from, to, airline } = payload || {};
+  const bookingId = order.bookingId || ((bookingType === 'hotel' ? 'HTL' : 'SKY') + Math.random().toString(36).substr(2, 8).toUpperCase());
+
+  // Send confirmation emails in background
+  Promise.allSettled([
+    sendConfirmationEmail({
+      to: email,
+      firstName: firstName || 'Passenger',
+      lastName: '',
+      amount,
+      bookingId,
+      paymentId: order.paymentId,
+      method: 'upi',
+      bookingType,
+      from,
+      to,
+      airline,
+      paidAt,
+      bank: resolvedBank
+    }),
+    dispatchSms(phone, `SkyWay Booking ${bookingId} CONFIRMED! Amount: Rs.${Number(amount).toLocaleString('en-IN')}. Txn: ${order.paymentId}. Debited from ${resolvedBank}. Have a great trip! -SkyWay`),
+  ]).then(results => {
+    results.forEach((r, i) => {
+      if (r.status === 'rejected') console.log(`Notification error:`, r.reason?.message);
+    });
+    console.log(`✅ [UPI-UTR] Payment CAPTURED for order ${orderId} with UTR ${utr}`);
+  });
+
+  await Booking.findOneAndUpdate(
+    { ticketId: bookingId },
+    { paymentStatus: 'completed', paymentMethod: 'upi', paymentId: order.paymentId }
+  ).catch(err => console.error('Error updating booking UPI UTR verified:', err));
+
+  res.json({
+    success: true,
+    paymentStatus: 'captured',
+    orderId,
+    paymentId: order.paymentId,
+    bookingId,
+    amount,
+    currency: 'INR',
+    method: 'upi',
+    status: 'captured',
+    paidAt,
+    bank: resolvedBank,
+  });
+});
+
+/**
  * POST /api/payments/cancel-order
  * Cancels a pending order due to page refresh or user abandonment
  */
-router.post('/cancel-order', (req, res) => {
+router.post('/cancel-order', async (req, res) => {
   const { orderId } = req.body;
   if (!orderId) return res.status(400).json({ success: false, error: 'orderId required' });
 
@@ -1310,6 +1408,11 @@ router.post('/cancel-order', (req, res) => {
     if (order.sessionId) {
       otpStore.delete(order.sessionId);
     }
+    await Booking.findOneAndUpdate(
+      { ticketId: order.bookingId },
+      { paymentStatus: 'failed', paymentMethod: order.method || 'card', paymentId: order.paymentId || '' }
+    ).catch(err => console.error('Error updating booking cancelled:', err));
+
     console.log(`❌ [CANCEL-ORDER] Payment CANCELLED/FAILED for order ${orderId} due to page reload`);
     return res.json({ success: true, status: 'failed' });
   }

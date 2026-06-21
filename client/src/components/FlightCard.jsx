@@ -1,9 +1,11 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
 export default function FlightCard({ flight, passengers = 1 }) {
   const navigate = useNavigate()
   const { user } = useAuth()
+  const [showDetails, setShowDetails] = useState(false)
 
   const handleBook = (e) => {
     e.stopPropagation()
@@ -12,6 +14,94 @@ export default function FlightCard({ flight, passengers = 1 }) {
       return
     }
     navigate('/checkout', { state: { type: 'flight', data: { ...flight, passengers } } })
+  }
+
+  function renderTimeline() {
+    if (!flight.layovers || flight.layovers.length === 0) return null;
+    
+    const times = [];
+    
+    if (flight.layovers.length === 1) {
+      const dep1 = flight.dep;
+      const arr1 = addTimeToStr(dep1, flight.segmentDurations?.[0] || '1h 30m');
+      times.push({ type: 'flight', from: flight.from, to: flight.layovers[0].city, dep: dep1, arr: arr1, dur: flight.segmentDurations?.[0] || '1h 30m' });
+      
+      times.push({ type: 'layover', city: flight.layovers[0].city, dur: flight.layovers[0].duration });
+      
+      const dep2 = addTimeToStr(arr1, flight.layovers[0].duration);
+      const arr2 = flight.arr;
+      times.push({ type: 'flight', from: flight.layovers[0].city, to: flight.to, dep: dep2, arr: arr2, dur: flight.segmentDurations?.[1] || '1h 30m' });
+    } else if (flight.layovers.length > 1) {
+      const d1 = flight.dep;
+      const a1 = addTimeToStr(d1, flight.segmentDurations?.[0] || '1h 10m');
+      times.push({ type: 'flight', from: flight.from, to: flight.layovers[0].city, dep: d1, arr: a1, dur: flight.segmentDurations?.[0] || '1h 10m' });
+      
+      times.push({ type: 'layover', city: flight.layovers[0].city, dur: flight.layovers[0].duration });
+      
+      const d2 = addTimeToStr(a1, flight.layovers[0].duration);
+      const a2 = addTimeToStr(d2, flight.segmentDurations?.[1] || '1h 15m');
+      times.push({ type: 'flight', from: flight.layovers[0].city, to: flight.layovers[1].city, dep: d2, arr: a2, dur: flight.segmentDurations?.[1] || '1h 15m' });
+      
+      times.push({ type: 'layover', city: flight.layovers[1].city, dur: flight.layovers[1].duration });
+      
+      const d3 = addTimeToStr(a2, flight.layovers[1].duration);
+      const a3 = flight.arr;
+      times.push({ type: 'flight', from: flight.layovers[1].city, to: flight.to, dep: d3, arr: a3, dur: flight.segmentDurations?.[2] || '1h 10m' });
+    }
+    
+    return (
+      <div 
+        onClick={(e) => e.stopPropagation()} 
+        style={{
+          marginTop: '1.25rem',
+          padding: '1.25rem',
+          background: 'rgba(255, 255, 255, 0.02)',
+          borderRadius: '16px',
+          border: '1px solid var(--card-border)',
+          animation: 'fadeInUp 0.3s ease',
+        }}
+      >
+        <div style={{ fontSize: '0.8rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-accent)', letterSpacing: '0.5px', marginBottom: '0.75rem' }}>
+          ✈ Journey Timeline
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', position: 'relative', paddingLeft: '1.25rem' }}>
+          <div style={{ position: 'absolute', left: '4px', top: '8px', bottom: '8px', width: '2px', background: 'var(--divider-color)' }}></div>
+          
+          {times.map((item, idx) => {
+            if (item.type === 'flight') {
+              return (
+                <div key={idx} style={{ position: 'relative' }}>
+                  <div style={{ position: 'absolute', left: '-23px', top: '5px', width: '8px', height: '8px', borderRadius: '50%', background: 'var(--color-accent)', boxShadow: '0 0 6px var(--color-accent)' }}></div>
+                  
+                  <div className="flex justify-between items-center flex-wrap gap-2 text-sm">
+                    <span className="font-semibold">{item.from} → {item.to}</span>
+                    <span className="text-xs text-text-muted">{item.dep} - {item.arr} ({item.dur})</span>
+                  </div>
+                </div>
+              );
+            } else {
+              return (
+                <div key={idx} style={{ 
+                  position: 'relative',
+                  padding: '0.5rem 0.75rem',
+                  background: 'rgba(245, 166, 35, 0.06)',
+                  border: '1px solid rgba(245, 166, 35, 0.15)',
+                  borderRadius: '10px',
+                  color: 'var(--color-accent)',
+                  fontSize: '0.78rem',
+                  fontWeight: 500,
+                  margin: '0.25rem 0'
+                }}>
+                  <div style={{ position: 'absolute', left: '-22px', top: '10px', width: '6px', height: '6px', borderRadius: '50%', background: '#ffbe4d' }}></div>
+                  
+                  <span>⏳ <strong>Layover:</strong> {item.dur} in {item.city}</span>
+                </div>
+              );
+            }
+          })}
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -78,6 +168,22 @@ export default function FlightCard({ flight, passengers = 1 }) {
                 {flight.seatsLeft <= 5 ? `🔥 Only ${flight.seatsLeft} seats left!` : `⚠️ ${flight.seatsLeft} seats left`}
               </span>
             )}
+            {flight.stops !== 'Direct' && flight.layovers && flight.layovers.length > 0 && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowDetails(!showDetails);
+                }}
+                className="text-xs px-3 py-1 rounded-lg cursor-pointer font-semibold transition-all hover:brightness-110"
+                style={{
+                  background: 'rgba(245, 166, 35, 0.12)',
+                  border: '1px solid rgba(245, 166, 35, 0.25)',
+                  color: 'var(--color-accent)',
+                }}
+              >
+                {showDetails ? 'Hide Stop Details ▴' : 'View Stop Details ▾'}
+              </button>
+            )}
           </div>
         </div>
 
@@ -108,6 +214,26 @@ export default function FlightCard({ flight, passengers = 1 }) {
           <button className="book-btn" onClick={handleBook}>Book Now →</button>
         </div>
       </div>
+      {showDetails && renderTimeline()}
     </div>
   )
+}
+
+function addTimeToStr(timeStr, durationStr) {
+  if (!timeStr || !durationStr) return timeStr;
+  try {
+    const parts = timeStr.split(':');
+    if (parts.length < 2) return timeStr;
+    const h = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10);
+    const durH = parseInt(durationStr.match(/(\d+)h/)?.[1] || 0, 10);
+    const durM = parseInt(durationStr.match(/(\d+)m/)?.[1] || 0, 10);
+    
+    let totalMins = (h * 60 + m) + (durH * 60 + durM);
+    let finalH = Math.floor(totalMins / 60) % 24;
+    let finalM = totalMins % 60;
+    return `${String(finalH).padStart(2, '0')}:${String(finalM).padStart(2, '0')}`;
+  } catch (e) {
+    return timeStr;
+  }
 }

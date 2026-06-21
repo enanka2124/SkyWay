@@ -22,10 +22,10 @@ export default function Footer() {
 
   return (
     <footer
-      className="relative z-10"
+      className="relative z-10 transition-colors duration-300"
       style={{
-        background: 'linear-gradient(to top, rgba(0,0,0,0.35) 0%, rgba(6,14,30,0.6) 100%)',
-        borderTop: '1px solid rgba(255,255,255,0.07)',
+        background: 'var(--footer-bg)',
+        borderTop: '1px solid var(--footer-border)',
         padding: '4rem 0 0',
       }}
     >
@@ -33,7 +33,7 @@ export default function Footer() {
         <div className="footer-grid">
           {/* Brand */}
           <div className="footer-brand">
-            <Link to="/" className="font-syne font-extrabold text-2xl tracking-tight flex items-center gap-2.5 mb-4 no-underline text-white">
+            <Link to="/" className="font-syne font-extrabold text-2xl tracking-tight flex items-center gap-2.5 mb-4 no-underline" style={{ color: 'var(--text-primary)' }}>
               <div
                 className="w-9 h-9 rounded-xl flex items-center justify-center text-base"
                 style={{
@@ -68,7 +68,7 @@ export default function Footer() {
           {/* Nav columns */}
           {columns.map((col) => (
             <div key={col.title}>
-              <h4 className="font-syne font-bold mb-4 text-sm tracking-widest uppercase" style={{ letterSpacing: '0.1em', color: '#e8f0ff' }}>
+              <h4 className="font-syne font-bold mb-4 text-sm tracking-widest uppercase" style={{ letterSpacing: '0.1em', color: 'var(--footer-title)' }}>
                 {col.title}
               </h4>
               <ul className="list-none flex flex-col gap-2.5">
@@ -94,7 +94,7 @@ export default function Footer() {
             marginTop: '3rem',
             paddingTop: '1.5rem',
             paddingBottom: '1.5rem',
-            borderTop: '1px solid rgba(255,255,255,0.07)',
+            borderTop: '1px solid var(--footer-border)',
             flexWrap: 'wrap', gap: '0.5rem',
           }}
         >

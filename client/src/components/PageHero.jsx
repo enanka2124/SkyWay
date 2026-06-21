@@ -158,7 +158,7 @@ export default function PageHero({
               <span style={{ 
                 display: inlineTitle ? 'inline-block' : 'block', 
                 textAlign: 'center', 
-                color: '#e8f0ff', 
+                color: 'var(--text-primary)', 
                 marginRight: inlineTitle ? '0.3em' : '0', 
                 marginBottom: inlineTitle ? '0' : '0.15em' 
               }}>

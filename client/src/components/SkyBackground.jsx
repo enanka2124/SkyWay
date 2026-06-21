@@ -70,7 +70,7 @@ export default function SkyBackground() {
       {/* Aurora layer */}
       <div aria-hidden style={{
         position:'absolute', inset:0, zIndex:0,
-        background:'linear-gradient(135deg, rgba(21,45,92,0.65) 0%, rgba(6,14,30,0) 50%, rgba(11,29,58,0.45) 100%)',
+        background:'linear-gradient(135deg, var(--aurora-1) 0%, var(--aurora-2) 50%, var(--aurora-3) 100%)',
         backgroundSize:'400% 400%',
         animation:'auroraShift 14s ease infinite',
       }}/>
@@ -88,15 +88,17 @@ export default function SkyBackground() {
       ))}
 
       {/* Star sparkles */}
-      {sparkles.map((s,i) => (
-        <div key={i} aria-hidden style={{
-          position:'absolute', top:s.top, left:s.left,
-          width:s.s, height:s.s, borderRadius:'50%',
-          background:'#fff',
-          boxShadow:`0 0 ${s.s*4}px rgba(255,255,255,0.9)`,
-          animation:`sparkle ${2.5+i*0.3}s ease-in-out ${s.d} infinite`,
-        }}/>
-      ))}
+      <div style={{ opacity: 'var(--sparkle-opacity)' }}>
+        {sparkles.map((s,i) => (
+          <div key={i} aria-hidden style={{
+            position:'absolute', top:s.top, left:s.left,
+            width:s.s, height:s.s, borderRadius:'50%',
+            background:'#fff',
+            boxShadow:`0 0 ${s.s*4}px rgba(255,255,255,0.9)`,
+            animation:`sparkle ${2.5+i*0.3}s ease-in-out ${s.d} infinite`,
+          }}/>
+        ))}
+      </div>
 
       {/* Flying plane */}
       <div aria-hidden style={{

@@ -1,13 +1,13 @@
 import { useState, useEffect, useRef } from 'react'
 
 /**
- * JusPayOtpPage — Real OTP flow with WHITE background (like real bank payment pages):
+ * RazorpayOtpPage — Real OTP flow with WHITE background (like real bank payment pages):
  *  - On mount: calls /api/payments/send-otp → real OTP sent to user's email + registered SMS
  *  - User enters OTP → calls /api/payments/verify-otp → payment completes
  *  - UPI payments: 5-min countdown timer; Card/NetBanking: 10-min countdown
  *  - OTP is sent to both email AND the user's registered phone number
  */
-export default function RazorpayOtpPage({ amount, method, cardNumber, upiId, upiInfo, selectedUpiApp, payeeConfig, bank, deviceId, passengerInfo, onOtpSuccess, onBack }) {
+export default function RazorpayOtpPage({ amount, method, cardNumber, upiId, upiInfo, selectedUpiApp, payeeConfig, bank, deviceId, passengerInfo, onOtpSuccess, onBack, bookingId }) {
   const [otp, setOtp] = useState(['', '', '', '', '', ''])
   const [sessionId, setSessionId] = useState(null)
   const [orderId, setOrderId] = useState(null)
@@ -36,6 +36,8 @@ export default function RazorpayOtpPage({ amount, method, cardNumber, upiId, upi
   const [nbUser, setNbUser] = useState('')
   const [nbPass, setNbPass] = useState('')
   const [showPhoneNotification, setShowPhoneNotification] = useState(false)
+  const [utrNumber, setUtrNumber] = useState('')
+  const [verifyingUtr, setVerifyingUtr] = useState(false)
 
   // QR Code Timer (5 minutes)
   const [qrSecondsLeft, setQrSecondsLeft] = useState(300)
@@ -43,6 +45,42 @@ export default function RazorpayOtpPage({ amount, method, cardNumber, upiId, upi
 
   const activePayeeUpi = payeeConfig?.payeeUpiId || 'skywaytravels@icici';
   const activeMerchantName = payeeConfig?.merchantName || 'SkyWay Travels';
+
+  const handleVerifyUtr = async () => {
+    if (!/^\d{12}$/.test(utrNumber)) {
+      setOtpError('Please enter a valid 12-digit UTR/Ref number.');
+      return;
+    }
+
+    setVerifyingUtr(true);
+    setOtpError('');
+    try {
+      const res = await fetch('/api/payments/verify-upi-utr', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderId,
+          utr: utrNumber,
+          upiId: upiId,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setVerifyingUtr(false);
+        setBankProcessing(true);
+        setTimeout(() => {
+          setBankProcessing(false);
+          onOtpSuccess(data);
+        }, 2200);
+      } else {
+        setOtpError(data.error || 'Failed to verify payment.');
+        setVerifyingUtr(false);
+      }
+    } catch (err) {
+      setOtpError('Network error verifying UPI payment UTR.');
+      setVerifyingUtr(false);
+    }
+  };
 
   useEffect(() => {
     if (subStep === 'upi-waiting') {
@@ -124,6 +162,7 @@ export default function RazorpayOtpPage({ amount, method, cardNumber, upiId, upi
           to: passengerInfo?.to,
           airline: passengerInfo?.airline,
           deviceId,
+          bookingId,
         }),
       })
       const data = await res.json()
@@ -504,6 +543,65 @@ export default function RazorpayOtpPage({ amount, method, cardNumber, upiId, upi
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center', color: '#16a34a', fontSize: 12, fontWeight: 700, marginBottom: 20 }}>
                     <span style={{ animation: 'jp-spin 2s linear infinite', display: 'inline-block' }}>⏳</span>
                     <span>Awaiting payment approval in your mobile app...</span>
+                  </div>
+
+                  {/* UTR Input Card */}
+                  <div style={{
+                    background: '#f8fafc',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '12px',
+                    padding: '16px',
+                    textAlign: 'left',
+                    marginBottom: '16px',
+                    marginTop: '8px'
+                  }}>
+                    <label style={{ fontSize: '12px', color: '#475569', fontWeight: 600, display: 'block', marginBottom: '6px' }}>
+                      🔗 Enter 12-Digit UPI Ref / UTR No.
+                    </label>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <input
+                        type="text"
+                        placeholder="12-digit UTR number"
+                        value={utrNumber}
+                        onChange={e => {
+                          setOtpError('');
+                          setUtrNumber(e.target.value.replace(/\D/g, '').slice(0, 12));
+                        }}
+                        style={{
+                          flex: 1,
+                          padding: '10px 12px',
+                          borderRadius: '8px',
+                          border: '1.5px solid #cbd5e1',
+                          fontSize: '14px',
+                          outline: 'none',
+                          color: '#1e293b',
+                          background: '#ffffff',
+                          fontFamily: 'monospace',
+                          letterSpacing: '0.5px'
+                        }}
+                      />
+                      <button
+                        onClick={handleVerifyUtr}
+                        disabled={utrNumber.length !== 12 || verifyingUtr}
+                        style={{
+                          padding: '10px 16px',
+                          background: utrNumber.length === 12 && !verifyingUtr ? '#10b981' : '#cbd5e1',
+                          color: '#ffffff',
+                          border: 'none',
+                          borderRadius: '8px',
+                          fontWeight: 700,
+                          fontSize: '13px',
+                          cursor: utrNumber.length === 12 && !verifyingUtr ? 'pointer' : 'not-allowed',
+                          transition: 'background 0.2s',
+                          whiteSpace: 'nowrap'
+                        }}
+                      >
+                        {verifyingUtr ? 'Verifying...' : 'Verify Pay'}
+                      </button>
+                    </div>
+                    <span style={{ fontSize: '10px', color: '#64748b', marginTop: '6px', display: 'block' }}>
+                      Find the 12-digit UTR/Ref No. in your payment confirmation message/receipt.
+                    </span>
                   </div>
 
                   {/* Mobile Direct Intent redirection */}

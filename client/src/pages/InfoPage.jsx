@@ -40,7 +40,7 @@ const pages = {
       { q: 'How do I book a flight?', a: 'Enter your departure city, destination, dates, and number of passengers. Click "Search" to see available flights, then select your preferred option and complete the booking form.' },
       { q: 'Can I cancel or modify my booking?', a: 'Yes! Go to "My Trips" or "Manage Booking" and enter your ticket ID. Cancellation and modification policies vary by airline.' },
       { q: 'How do I get a refund?', a: 'Refunds are processed automatically for eligible cancellations within 5-7 business days. Check our Refunds page for detailed policies.' },
-      { q: 'Is my payment secure?', a: 'Absolutely. We use 256-bit SSL encryption and partner with JusPay for secure payment processing (PCI DSS Level 1). Your card details are never stored on our servers.' },
+      { q: 'Is my payment secure?', a: 'Absolutely. We use 256-bit SSL encryption and partner with Razorpay for secure payment processing (PCI DSS Level 1). Your card details are never stored on our servers.' },
       { q: 'Do you charge convenience fees?', a: 'A small convenience fee of ₹299 is added to cover payment processing and customer support. This is clearly shown before you pay.' },
       { q: 'How can I contact support?', a: 'Reach us via email at support@skyway.in, call +91 1800-SKY-0000 (toll-free, 24/7), or use the live chat feature in our app.' },
     ],
@@ -59,7 +59,7 @@ const pages = {
     sections: [
       { heading: 'Data We Collect', content: 'We collect information you provide directly (name, email, phone, payment details) and automatically (device info, browsing patterns, IP address) to improve our services.' },
       { heading: 'How We Use Your Data', list: ['Process bookings and payments', 'Send booking confirmations and updates', 'Personalize search results and deals', 'Improve our platform and user experience', 'Comply with legal obligations'] },
-      { heading: 'Data Sharing', content: 'We share your information only with airlines (for ticketing), payment processors (JusPay), and as required by law. We never sell your personal data to third parties.' },
+      { heading: 'Data Sharing', content: 'We share your information only with airlines (for ticketing), payment processors (Razorpay), and as required by law. We never sell your personal data to third parties.' },
       { heading: 'Data Security', content: 'Your data is protected with 256-bit AES encryption. Payment information is processed through PCI-DSS compliant systems and never stored on our servers.' },
       { heading: 'Your Rights', content: 'You may request access to, correction, or deletion of your personal data at any time by contacting privacy@skyway.in.' },
     ],
@@ -156,10 +156,10 @@ export default function InfoPage({ page }) {
             <>
               <div className="grid grid-cols-2 gap-5 mb-16" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
                 {data.info.map((info, i) => (
-                  <div key={i} className="flight-card flex flex-col items-center text-center p-8 border-white/5 bg-white/3">
+                  <div key={i} className="flight-card flex flex-col items-center text-center p-8">
                     <div className="text-4xl mb-4">{info.icon}</div>
                     <div className="font-syne font-bold text-lg mb-1.5 text-accent">{info.label}</div>
-                    <div className="text-white text-base font-medium mb-1">{info.value}</div>
+                    <div className="text-base font-medium mb-1">{info.value}</div>
                     <div className="text-xs text-text-muted mt-1">{info.desc}</div>
                   </div>
                 ))}
@@ -195,7 +195,7 @@ export default function InfoPage({ page }) {
                   <div key={i} className="flight-card flex items-center justify-between flex-wrap gap-3">
                     <div>
                       <div className="flex items-center gap-2 mb-1">
-                        <span className="text-xs font-medium px-2 py-0.5 rounded bg-white/5 text-text-muted border border-white/10">ID: {job.id}</span>
+                        <span className="text-xs font-medium px-2 py-0.5 rounded bg-black/5 dark:bg-white/5 text-text-muted border border-black/10 dark:border-white/10">ID: {job.id}</span>
                         <span className="text-xs text-text-muted">Posted: {job.postedDate}</span>
                       </div>
                       <div className="font-syne font-bold text-lg mb-1">{job.title}</div>
@@ -219,7 +219,7 @@ export default function InfoPage({ page }) {
           {data.faqs && (
             <div className="flex flex-col gap-4">
               {data.faqs.map((faq, i) => (
-                <div key={i} className="flight-card border-white/8 bg-white/2" style={{ cursor: 'pointer' }} onClick={() => setOpenFaq(openFaq === i ? null : i)}>
+                <div key={i} className="flight-card" style={{ cursor: 'pointer' }} onClick={() => setOpenFaq(openFaq === i ? null : i)}>
                   <div className="flex items-center justify-between">
                     <div className="font-syne font-bold text-accent text-lg">{faq.q}</div>
                     <span className="text-accent text-2xl shrink-0 ml-4">{openFaq === i ? '−' : '+'}</span>
@@ -239,7 +239,7 @@ export default function InfoPage({ page }) {
                 <input type="text" placeholder="e.g. SKY8F2KL or HTLAB1234" value={ticketLookup} onChange={e => setTicketLookup(e.target.value)} className="sky-input" style={{ flex: 1 }} />
                 <button className="btn-accent px-6" onClick={handleTicketLookup}>Look Up</button>
               </div>
-              <div className="mt-6 pt-4 border-t border-white/8">
+              <div className="mt-6 pt-4 border-t border-divider-color">
                 <p className="text-sm text-text-muted">Can't find your booking? <Link to="/contact" className="text-accent no-underline">Contact Support</Link></p>
               </div>
             </div>

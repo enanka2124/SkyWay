@@ -43,11 +43,11 @@ export default function AccountDetails() {
       <Navbar />
       <div className="container-main py-12 min-h-[70vh] flex justify-center">
         <div className="w-full max-w-2xl">
-          <h1 className="font-syne text-3xl font-bold mb-6 text-white">Account Details</h1>
+          <h1 className="font-syne text-3xl font-bold mb-6 text-text-primary">Account Details</h1>
           
           <div className="flex flex-col gap-8">
             <div className="glass-card p-8 rounded-2xl">
-            <div className="flex items-center gap-6 mb-8 pb-8" style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+            <div className="flex items-center gap-6 mb-8 pb-8" style={{ borderBottom: '1px solid var(--divider-color)' }}>
               <div 
                 className="w-20 h-20 rounded-full flex items-center justify-center text-3xl font-bold"
                 style={{ background: 'linear-gradient(135deg, #f5a623, #e8940f)', color: '#060e1e', flexShrink: 0 }}
@@ -55,7 +55,7 @@ export default function AccountDetails() {
                 {user.firstName?.[0]}{user.lastName?.[0]}
               </div>
               <div>
-                <h2 className="text-2xl font-bold text-white m-0">{user.firstName} {user.lastName}</h2>
+                <h2 className="text-2xl font-bold text-text-primary m-0">{user.firstName} {user.lastName}</h2>
                 <p className="text-text-muted mt-1">{user.email}</p>
                 <div className="mt-3 inline-block px-3 py-1 rounded-full text-xs font-bold" style={{ background: 'rgba(34,208,122,0.1)', color: '#22d07a', border: '1px solid rgba(34,208,122,0.2)' }}>
                   Active Member
@@ -66,19 +66,19 @@ export default function AccountDetails() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
               <div>
                 <label className="block text-xs uppercase tracking-wider text-text-muted mb-2 font-bold">First Name</label>
-                <div className="text-white font-medium bg-black/20 p-3.5 rounded-xl border border-white/10">{user.firstName}</div>
+                <div className="font-medium bg-black/5 dark:bg-black/20 p-3.5 rounded-xl border border-black/10 dark:border-white/10">{user.firstName}</div>
               </div>
               <div>
                 <label className="block text-xs uppercase tracking-wider text-text-muted mb-2 font-bold">Last Name</label>
-                <div className="text-white font-medium bg-black/20 p-3.5 rounded-xl border border-white/10">{user.lastName}</div>
+                <div className="font-medium bg-black/5 dark:bg-black/20 p-3.5 rounded-xl border border-black/10 dark:border-white/10">{user.lastName}</div>
               </div>
               <div>
                 <label className="block text-xs uppercase tracking-wider text-text-muted mb-2 font-bold">Email Address</label>
-                <div className="text-white font-medium bg-black/20 p-3.5 rounded-xl border border-white/10">{user.email}</div>
+                <div className="font-medium bg-black/5 dark:bg-black/20 p-3.5 rounded-xl border border-black/10 dark:border-white/10">{user.email}</div>
               </div>
               <div>
                 <label className="block text-xs uppercase tracking-wider text-text-muted mb-2 font-bold">Phone Number</label>
-                <div className="text-white font-medium bg-black/20 p-3.5 rounded-xl border border-white/10">{user.phone}</div>
+                <div className="font-medium bg-black/5 dark:bg-black/20 p-3.5 rounded-xl border border-black/10 dark:border-white/10">{user.phone}</div>
               </div>
             </div>
           </div>
@@ -115,7 +115,7 @@ export default function AccountDetails() {
                 <button 
                   onClick={() => setShowConfirm(false)}
                   disabled={loading}
-                  className="px-6 py-2.5 rounded-lg font-bold text-sm bg-transparent text-white border border-white/20 cursor-pointer hover:bg-white/10 disabled:opacity-50 transition-colors"
+                  className="px-6 py-2.5 rounded-lg font-bold text-sm bg-transparent text-text-primary border border-divider-color cursor-pointer hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-50 transition-colors"
                 >
                   Cancel
                 </button>

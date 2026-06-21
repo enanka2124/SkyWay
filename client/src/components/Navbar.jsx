@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { useTheme } from '../context/ThemeContext'
 
 export default function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -8,6 +9,7 @@ export default function Navbar() {
   const location = useLocation()
   const navigate = useNavigate()
   const { user, logout } = useAuth()
+  const { theme, toggleTheme } = useTheme()
 
   const toggleMenu = () => {
     setMobileOpen(!mobileOpen)
@@ -34,8 +36,8 @@ export default function Navbar() {
 
   const handleItemEnter = (e, path) => {
     if (!isActive(path)) {
-      e.currentTarget.style.color = '#e8f0ff';
-      e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
+      e.currentTarget.style.color = 'var(--text-primary)';
+      e.currentTarget.style.background = 'var(--btn-ghost-bg)';
     }
   };
 
@@ -46,17 +48,21 @@ export default function Navbar() {
     }
   };
 
-  const handleProfileEnter = (e) => e.currentTarget.style.background = 'rgba(255,255,255,0.09)';
-  const handleProfileLeave = (e) => e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
+  const handleProfileEnter = (e) => {
+    e.currentTarget.style.background = 'var(--btn-ghost-border)';
+  };
+  const handleProfileLeave = (e) => {
+    e.currentTarget.style.background = 'var(--btn-ghost-bg)';
+  };
 
   const handleMenuEnter = (e) => {
-    e.currentTarget.style.color = '#e8f0ff';
-    e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
+    e.currentTarget.style.color = 'var(--text-primary)';
+    e.currentTarget.style.background = 'var(--btn-ghost-bg)';
   };
 
   const handleMenuLeave = (e) => {
-    e.currentTarget.style.color = '';
-    e.currentTarget.style.background = '';
+    e.currentTarget.style.color = 'var(--text-muted)';
+    e.currentTarget.style.background = 'transparent';
   };
 
   const handleSignoutEnter = (e) => e.currentTarget.style.background = 'rgba(239,68,68,0.07)';
@@ -65,13 +71,13 @@ export default function Navbar() {
   return (
     <>
       <nav
-        className="sticky top-0 z-100"
+        className="sticky top-0 z-100 transition-all duration-300"
         style={{
-          background: 'rgba(6,14,30,0.72)',
+          background: 'var(--nav-bg)',
           backdropFilter: 'blur(18px)',
           WebkitBackdropFilter: 'blur(18px)',
-          borderBottom: '1px solid rgba(255,255,255,0.07)',
-          boxShadow: '0 4px 24px rgba(0,0,0,0.2)',
+          borderBottom: '1px solid var(--nav-border)',
+          boxShadow: 'var(--nav-shadow)',
         }}
       >
         <div className="container-main flex items-center justify-between py-4">
@@ -79,9 +85,9 @@ export default function Navbar() {
           {/* Logo */}
           <Link
             to="/"
-            className="font-syne font-extrabold text-2xl tracking-tight flex items-center gap-2.5 no-underline text-white"
+            className="font-syne font-extrabold text-2xl tracking-tight flex items-center gap-2.5 no-underline"
             onClick={closeMenu}
-            style={{ letterSpacing: '-0.5px' }}
+            style={{ letterSpacing: '-0.5px', color: 'var(--text-primary)' }}
           >
             <div
               className="w-8 h-8 rounded-xl flex items-center justify-center text-sm"
@@ -124,16 +130,31 @@ export default function Navbar() {
 
           {/* CTA */}
           <div className="nav-cta flex gap-2.5 items-center">
+            <button
+              onClick={toggleTheme}
+              className="w-9 h-9 rounded-xl flex items-center justify-center cursor-pointer transition-all hover:scale-105"
+              style={{
+                background: 'var(--btn-ghost-bg)',
+                border: '1px solid var(--btn-ghost-border)',
+                color: 'var(--color-accent)',
+                fontSize: '1.1rem',
+                marginRight: '0.25rem',
+              }}
+              aria-label="Toggle Theme"
+            >
+              {theme === 'light' ? '🌙' : '☀️'}
+            </button>
             {user ? (
               <div className="relative">
                 <button
-                  className="flex items-center gap-2.5 bg-transparent border-none cursor-pointer text-white"
+                  className="flex items-center gap-2.5 bg-transparent border-none cursor-pointer"
                   onClick={() => setProfileOpen(!profileOpen)}
                   style={{
                     padding: '6px 12px 6px 6px',
                     borderRadius: 12,
-                    background: 'rgba(255,255,255,0.05)',
-                    border: '1px solid rgba(255,255,255,0.1)',
+                    background: 'var(--btn-ghost-bg)',
+                    border: '1px solid var(--btn-ghost-border)',
+                    color: 'var(--text-primary)',
                     transition: 'all 0.2s',
                   }}
                   onMouseEnter={handleProfileEnter}
@@ -145,8 +166,8 @@ export default function Navbar() {
                   >
                     {user.firstName?.[0]}{user.lastName?.[0]}
                   </div>
-                  <span className="text-sm font-medium hidden sm:inline" style={{ color: '#e8f0ff' }}>{user.firstName}</span>
-                  <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" style={{ opacity: 0.5 }}>
+                  <span className="text-sm font-medium hidden sm:inline" style={{ color: 'var(--text-primary)' }}>{user.firstName}</span>
+                  <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" style={{ opacity: 0.5, color: 'var(--text-primary)' }}>
                     <path d="M3 5l3 3 3-3" />
                   </svg>
                 </button>
@@ -158,21 +179,21 @@ export default function Navbar() {
                       className="absolute right-0 top-full mt-2 z-100 rounded-2xl overflow-hidden"
                       style={{
                         minWidth: 220,
-                        background: 'rgba(11,29,58,0.97)',
-                        border: '1px solid rgba(255,255,255,0.1)',
+                        background: 'var(--modal-bg)',
+                        border: '1px solid var(--modal-border)',
                         backdropFilter: 'blur(20px)',
-                        boxShadow: '0 16px 48px rgba(0,0,0,0.5)',
+                        boxShadow: '0 16px 48px rgba(0,0,0,0.15)',
                         animation: 'slideUp 0.2s ease',
                       }}
                     >
-                      <div className="px-4 py-3.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
-                        <div className="font-semibold text-sm text-white">{user.firstName} {user.lastName}</div>
-                        <div className="text-xs text-text-muted mt-0.5">{user.email}</div>
+                      <div className="px-4 py-3.5" style={{ borderBottom: '1px solid var(--divider-color)' }}>
+                        <div className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>{user.firstName} {user.lastName}</div>
+                        <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>{user.email}</div>
                       </div>
                       <Link
                         to="/my-trips"
-                        className="block px-4 py-2.5 text-sm text-text-muted no-underline transition-colors"
-                        style={{ transition: 'all 0.15s' }}
+                        className="block px-4 py-2.5 text-sm no-underline transition-colors"
+                        style={{ color: 'var(--text-muted)', transition: 'all 0.15s' }}
                         onClick={() => setProfileOpen(false)}
                         onMouseEnter={handleMenuEnter}
                         onMouseLeave={handleMenuLeave}
@@ -181,8 +202,8 @@ export default function Navbar() {
                       </Link>
                       <Link
                         to="/account-details"
-                        className="block px-4 py-2.5 text-sm text-text-muted no-underline transition-colors"
-                        style={{ transition: 'all 0.15s' }}
+                        className="block px-4 py-2.5 text-sm no-underline transition-colors"
+                        style={{ color: 'var(--text-muted)', transition: 'all 0.15s' }}
                         onClick={() => setProfileOpen(false)}
                         onMouseEnter={handleMenuEnter}
                         onMouseLeave={handleMenuLeave}
@@ -215,11 +236,11 @@ export default function Navbar() {
             className="hamburger flex-col gap-[5px] cursor-pointer bg-transparent border-none p-2"
             onClick={toggleMenu}
             aria-label="Menu"
-            style={{ borderRadius: 8, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}
+            style={{ borderRadius: 8, background: 'var(--btn-ghost-bg)', border: '1px solid var(--btn-ghost-border)' }}
           >
-            <span className="block w-[20px] h-[2px] bg-white rounded-sm" style={{ transition: 'all 0.2s', transform: mobileOpen ? 'rotate(45deg) translate(5px,5px)' : 'none' }}></span>
-            <span className="block w-[20px] h-[2px] bg-white rounded-sm" style={{ transition: 'all 0.2s', opacity: mobileOpen ? 0 : 1 }}></span>
-            <span className="block w-[20px] h-[2px] bg-white rounded-sm" style={{ transition: 'all 0.2s', transform: mobileOpen ? 'rotate(-45deg) translate(5px,-5px)' : 'none' }}></span>
+            <span className="block w-[20px] h-[2px] rounded-sm" style={{ background: 'var(--text-primary)', transition: 'all 0.2s', transform: mobileOpen ? 'rotate(45deg) translate(5px,5px)' : 'none' }}></span>
+            <span className="block w-[20px] h-[2px] rounded-sm" style={{ background: 'var(--text-primary)', transition: 'all 0.2s', opacity: mobileOpen ? 0 : 1 }}></span>
+            <span className="block w-[20px] h-[2px] rounded-sm" style={{ background: 'var(--text-primary)', transition: 'all 0.2s', transform: mobileOpen ? 'rotate(-45deg) translate(5px,-5px)' : 'none' }}></span>
           </button>
         </div>
       </nav>
@@ -228,12 +249,13 @@ export default function Navbar() {
       {mobileOpen && (
         <div className="mobile-menu" style={{ animation: 'fadeInDown 0.25s ease' }}>
           <button
-            className="absolute top-5 right-6 bg-transparent border-none text-white text-xl cursor-pointer"
+            className="absolute top-5 right-6 bg-transparent border-none text-xl cursor-pointer"
             onClick={closeMenu}
             style={{
               width: 38, height: 38, borderRadius: 10,
-              background: 'rgba(255,255,255,0.08)',
-              border: '1px solid rgba(255,255,255,0.12)',
+              background: 'var(--btn-ghost-bg)',
+              border: '1px solid var(--btn-ghost-border)',
+              color: 'var(--text-primary)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}
           >
@@ -244,15 +266,22 @@ export default function Navbar() {
               key={item.path}
               to={item.path}
               className="font-syne text-2xl no-underline font-bold transition-colors"
-              style={{ color: isActive(item.path) ? 'var(--color-accent)' : '#e8f0ff' }}
+              style={{ color: isActive(item.path) ? 'var(--color-accent)' : 'var(--text-primary)' }}
               onClick={closeMenu}
             >
               {item.label}
             </Link>
           ))}
+          <button
+            onClick={() => { toggleTheme(); }}
+            className="btn-ghost text-base px-8 py-3.5 flex items-center justify-center gap-2 mt-2"
+            style={{ width: '100%', maxWidth: '240px', borderRadius: '12px' }}
+          >
+            {theme === 'light' ? '🌙 Dark Mode' : '☀️ Light Mode'}
+          </button>
           {user ? (
             <>
-              <div className="text-text-muted text-sm">Signed in as {user.firstName}</div>
+              <div className="text-sm" style={{ color: 'var(--text-muted)' }}>Signed in as {user.firstName}</div>
               <Link to="/account-details" className="btn-ghost text-base px-8 py-3 mt-4 text-center no-underline" onClick={closeMenu}>Account Details</Link>
               <button className="btn-accent text-base px-8 py-3" onClick={() => { closeMenu(); handleLogout() }}>Sign Out</button>
             </>

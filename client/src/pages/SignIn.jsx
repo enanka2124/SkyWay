@@ -123,7 +123,7 @@ export default function SignIn() {
           {/* Back button */}
           <button
             onClick={() => navigate(-1)}
-            className="text-text-muted text-sm flex items-center gap-2 mb-4 bg-transparent border-none cursor-pointer hover:text-white transition-colors"
+            className="text-text-muted text-sm flex items-center gap-2 mb-4 bg-transparent border-none cursor-pointer hover:text-text-primary transition-colors"
           >
             ← Back
           </button>
@@ -162,7 +162,7 @@ export default function SignIn() {
                   <label className="text-xs font-medium text-text-muted tracking-wider uppercase">Password</label>
                   <div className="relative">
                     <input type={showPassword ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" className="sky-input" style={{ paddingRight: '3rem' }} autoComplete="current-password" />
-                    <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 bg-transparent border-none text-text-muted text-sm cursor-pointer hover:text-white transition-colors">
+                    <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 bg-transparent border-none text-text-muted text-sm cursor-pointer hover:text-text-primary transition-colors">
                       {showPassword ? '🙈' : '👁'}
                     </button>
                   </div>
@@ -184,9 +184,9 @@ export default function SignIn() {
 
                 {/* Divider */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', margin: '0.5rem 0' }}>
-                  <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.08)' }}></div>
+                  <div style={{ flex: 1, height: 1, background: 'var(--divider-color)' }}></div>
                   <span className="text-text-muted text-xs">New to SkyWay?</span>
-                  <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.08)' }}></div>
+                  <div style={{ flex: 1, height: 1, background: 'var(--divider-color)' }}></div>
                 </div>
 
                 <Link to="/register" state={{ from: redirectTo }} className="confirm-btn no-underline text-center" style={{ background: 'transparent', border: '1.5px solid var(--color-accent)', color: 'var(--color-accent)' }}>

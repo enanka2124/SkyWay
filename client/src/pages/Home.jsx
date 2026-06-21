@@ -38,7 +38,7 @@ export default function Home() {
     setSearchParams({ from, to, date: depart, returnDate, tripType, passengers, cabin })
 
     try {
-      const res = await fetch(`/api/flights?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&date=${depart}`)
+      const res = await fetch(`/api/flights?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&date=${depart}&cabin=${encodeURIComponent(cabin)}`)
       const data = await res.json()
       setTimeout(() => {
         setLoading(false)
@@ -69,12 +69,19 @@ export default function Home() {
 
           // Apply Deal logic if present (promotional override)
           if (dealPrice && updatedFlights.length > 0) {
-            const basePrice = parseInt(dealPrice, 10) * tripMultiplier;
+            const cabinMultipliers = {
+              'Economy': 1.0,
+              'Premium Economy': 1.35,
+              'Business': 2.25,
+              'First Class': 4.0
+            };
+            const cabinMultiplier = cabinMultipliers[cabin] || 1.0;
+            const basePrice = parseInt(dealPrice, 10) * tripMultiplier * cabinMultiplier;
             updatedFlights = updatedFlights.map((f, i) => {
               const isDeal = i < 6;
               return {
                 ...f,
-                price: i === 0 ? Math.floor(basePrice) : Math.floor(basePrice + Math.floor(Math.random() * 2000) + (i * 1200)),
+                price: i === 0 ? Math.floor(basePrice) : Math.floor(basePrice + (Math.floor(Math.random() * 2000) + (i * 1200)) * cabinMultiplier),
                 isDeal: isDeal,
                 discount: isDeal ? (parseInt(dealDiscount, 10) || 0) : 0
               }
@@ -127,7 +134,7 @@ export default function Home() {
               </div>
             </div>
           )}
-          <FlightResults flights={flights} from={searchParams.from} to={searchParams.to} date={searchParams.date} returnDate={searchParams.returnDate} tripType={searchParams.tripType} passengers={searchParams.passengers} loading={loading} filterPrices={filterPrices} />
+          <FlightResults flights={flights} from={searchParams.from} to={searchParams.to} date={searchParams.date} returnDate={searchParams.returnDate} tripType={searchParams.tripType} passengers={searchParams.passengers} loading={loading} filterPrices={filterPrices} cabin={searchParams.cabin} />
           <div className="section-divider"></div>
         </div>
       )}

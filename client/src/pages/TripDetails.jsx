@@ -53,6 +53,11 @@ const serverBookingToTrip = (b) => ({
     from: b.flight.from, to: b.flight.to,
     dep: b.flight.dep, arr: b.flight.arr,
     duration: b.flight.duration, stops: b.flight.stops,
+    cabin: b.flight.cabin, layover: b.flight.layover,
+    layovers: b.flight.layovers,
+    segmentDurations: b.flight.segmentDurations,
+    baggage: b.flight.baggage,
+    meal: b.flight.meal,
   } : undefined,
   hotel: b.hotel ? {
     name: b.hotel.name, city: b.hotel.city,
@@ -67,6 +72,9 @@ const serverBookingToTrip = (b) => ({
   },
   passenger: b.passenger,
   status: b.paymentStatus === 'cancelled' ? 'cancelled' : 'confirmed',
+  paymentMethod: b.paymentMethod,
+  paymentId: b.paymentId,
+  paymentStatus: b.paymentStatus,
   cancelledAt: b.cancelledAt || null,
   bookedAt: b.bookedAt,
   _source: 'server',
@@ -76,7 +84,7 @@ export default function TripDetails() {
   const { ticketId } = useParams()
   const { state: locationState } = useLocation()
   const navigate = useNavigate()
-  const { user } = useAuth()
+  const { user, loading: authLoading } = useAuth()
 
   const [trip, setTrip] = useState(locationState || null)
   const [loading, setLoading] = useState(!locationState)
@@ -84,6 +92,95 @@ export default function TripDetails() {
   const [cancelling, setCancelling] = useState(false)
   const [cancelDone, setCancelDone] = useState(false)
   const [showCancelConfirm, setShowCancelConfirm] = useState(false)
+
+  // Passenger details edit state
+  const [isEditing, setIsEditing] = useState(false)
+  const [editFirstName, setEditFirstName] = useState('')
+  const [editLastName, setEditLastName] = useState('')
+  const [editPassport, setEditPassport] = useState('')
+  const [editNationality, setEditNationality] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
+
+  // Sync edit fields when trip details load
+  useEffect(() => {
+    if (trip?.passenger) {
+      setEditFirstName(trip.passenger.firstName || '')
+      setEditLastName(trip.passenger.lastName || '')
+      setEditPassport(trip.passenger.passport || '')
+      setEditNationality(trip.passenger.nationality || '')
+    }
+  }, [trip])
+
+  const handleSaveDetails = async () => {
+    if (!editFirstName.trim() || !editLastName.trim()) {
+      setSaveError('First and last name are required.')
+      return
+    }
+    setSaving(true)
+    setSaveError('')
+    try {
+      const res = await fetch(`/api/bookings/${ticketId}/passenger`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          firstName: editFirstName.trim(),
+          lastName: editLastName.trim(),
+          passport: editPassport.trim(),
+          nationality: editNationality,
+        })
+      })
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to save to server')
+      }
+
+      if (user) {
+        const tripsKey = `skyway_trips_${user._id}`
+        const local = JSON.parse(localStorage.getItem(tripsKey) || '[]')
+        const updated = local.map(t => {
+          if (t.ticketId === ticketId) {
+            return {
+              ...t,
+              passenger: {
+                ...t.passenger,
+                firstName: editFirstName.trim(),
+                lastName: editLastName.trim(),
+                passport: editPassport.trim(),
+                nationality: editNationality,
+              }
+            }
+          }
+          return t
+        })
+        localStorage.setItem(tripsKey, JSON.stringify(updated))
+      }
+
+      setTrip(t => ({
+        ...t,
+        passenger: {
+          ...t.passenger,
+          firstName: editFirstName.trim(),
+          lastName: editLastName.trim(),
+          passport: editPassport.trim(),
+          nationality: editNationality,
+        }
+      }))
+      setIsEditing(false)
+    } catch (err) {
+      console.error('Error saving passenger details:', err)
+      setSaveError('Failed to save details. Please try again.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // Redirect to signin if not authenticated and auth loading finished
+  useEffect(() => {
+    if (!authLoading && !user) {
+      navigate('/signin')
+    }
+  }, [user, authLoading, navigate])
 
   // If no state passed (e.g. direct URL access), fetch from server
   useEffect(() => {
@@ -95,14 +192,14 @@ export default function TripDetails() {
         const res = await fetch(`/api/bookings?email=${encodeURIComponent(user.email)}`)
         const data = await res.json()
         if (data.success && Array.isArray(data.bookings)) {
-          const found = data.bookings.find(b => b.ticketId === ticketId)
+          const found = data.bookings.find(b => b.ticketId === ticketId || b.bookingId === ticketId || b.id === ticketId || b._id === ticketId)
           if (found) {
             setTrip(serverBookingToTrip(found))
           } else {
             // Fall back to localStorage
             const tripsKey = `skyway_trips_${user._id}`
             const local = JSON.parse(localStorage.getItem(tripsKey) || '[]')
-            const localFound = local.find(t => t.ticketId === ticketId)
+            const localFound = local.find(t => t.ticketId === ticketId || t.bookingId === ticketId || t.id === ticketId)
             if (localFound) setTrip(localFound)
             else setNotFound(true)
           }
@@ -116,7 +213,7 @@ export default function TripDetails() {
       }
     }
     fetchTrip()
-  }, [ticketId, user])
+  }, [ticketId, user, trip])
 
   const handleCancel = async () => {
     setCancelling(true)
@@ -137,8 +234,7 @@ export default function TripDetails() {
     setShowCancelConfirm(false)
   }
 
-  if (!user) return null
-  if (loading) return (
+  if (authLoading || loading) return (
     <>
       <Navbar />
       <div style={{ minHeight: '70vh', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '1rem' }}>
@@ -148,6 +244,8 @@ export default function TripDetails() {
       <Footer />
     </>
   )
+
+  if (!user) return null
 
   if (notFound) return (
     <>
@@ -186,7 +284,7 @@ export default function TripDetails() {
       {/* ── Hero Banner ───────────────────────────────────────────────── */}
       <div style={{
         position: 'relative', height: 220, overflow: 'hidden',
-        background: destImage ? 'transparent' : 'linear-gradient(135deg, #0b1d3a 0%, #152d5c 100%)',
+        background: destImage ? 'transparent' : 'linear-gradient(135deg, var(--color-sky-mid) 0%, var(--color-sky-light) 100%)',
       }}>
         {destImage && (
           <img src={destImage} alt="destination"
@@ -247,7 +345,7 @@ export default function TripDetails() {
                 </h2>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.25rem' }}>
                   {/* Route */}
-                  <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: '1.5rem', padding: '1rem 1.25rem', background: 'rgba(255,255,255,0.03)', borderRadius: 14, border: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: '1.5rem', padding: '1rem 1.25rem', background: 'var(--filter-group-bg)', borderRadius: 14, border: '1px solid var(--divider-color)' }}>
                     <div>
                       <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 2 }}>Departure</div>
                       <div style={{ fontFamily: 'var(--font-syne)', fontSize: '2rem', fontWeight: 800 }}>{trip.flight.dep}</div>
@@ -268,19 +366,23 @@ export default function TripDetails() {
                   {[
                     ['Airline', trip.flight.airline],
                     ['Flight Code', trip.flight.code],
+                    ['Cabin Class', trip.flight.cabin || 'Economy'],
                     ['Stops', trip.flight.stops || 'Direct'],
                     ['Duration', trip.flight.duration],
+                    ['Baggage Allowance', trip.flight.baggage || '15 kg'],
+                    ['Meal Option', trip.flight.meal || 'Standard'],
                     ['Travel Date', fmtDate(trip.flight.searchedDate || trip.bookedAt, { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })],
-                    trip.flight.tripType === 'round' && trip.flight.returnDate
+                    trip.flight.returnDate
                       ? ['Return Date', fmtDate(trip.flight.returnDate, { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })]
                       : null,
                   ].filter(Boolean).map(([label, value]) => (
-                    <div key={label} style={{ padding: '0.75rem 1rem', background: 'rgba(255,255,255,0.025)', borderRadius: 10 }}>
+                    <div key={label} style={{ padding: '0.75rem 1rem', background: 'var(--filter-group-bg)', borderRadius: 10, border: '1px solid var(--divider-color)' }}>
                       <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 3 }}>{label}</div>
                       <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{value || '--'}</div>
                     </div>
                   ))}
                 </div>
+                {renderTripJourneyTimeline(trip.flight)}
               </div>
             )}
 
@@ -291,7 +393,7 @@ export default function TripDetails() {
                   🏨 Hotel Details
                 </h2>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
-                  <div style={{ gridColumn: '1 / -1', padding: '1rem 1.25rem', background: 'rgba(255,255,255,0.03)', borderRadius: 14, border: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ gridColumn: '1 / -1', padding: '1rem 1.25rem', background: 'var(--filter-group-bg)', borderRadius: 14, border: '1px solid var(--divider-color)' }}>
                     <div style={{ fontFamily: 'var(--font-syne)', fontWeight: 700, fontSize: '1.25rem', marginBottom: 4 }}>{trip.hotel.name}</div>
                     <div style={{ color: 'var(--color-text-muted)', marginBottom: 6 }}>📍 {trip.hotel.city}</div>
                     {trip.hotel.stars && (
@@ -306,7 +408,7 @@ export default function TripDetails() {
                     ['Rooms', trip.searchInfo?.rooms ? `${trip.searchInfo.rooms} Room${trip.searchInfo.rooms > 1 ? 's' : ''}` : '--'],
                     ['Per Night', trip.hotel.price ? `₹${trip.hotel.price.toLocaleString('en-IN')}` : '--'],
                   ].map(([label, value]) => (
-                    <div key={label} style={{ padding: '0.75rem 1rem', background: 'rgba(255,255,255,0.025)', borderRadius: 10 }}>
+                    <div key={label} style={{ padding: '0.75rem 1rem', background: 'var(--filter-group-bg)', borderRadius: 10, border: '1px solid var(--divider-color)' }}>
                       <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 3 }}>{label}</div>
                       <div style={{ fontWeight: 600, fontSize: '0.9rem', color: label === 'Check-in' || label === 'Check-out' ? 'var(--color-accent)' : 'inherit' }}>{value}</div>
                     </div>
@@ -317,23 +419,136 @@ export default function TripDetails() {
 
             {/* ── Passenger Details ───────────────────────────────────── */}
             <div className="glass-card">
-              <h2 style={{ fontFamily: 'var(--font-syne)', fontWeight: 700, fontSize: '1.1rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: 8, color: 'var(--color-accent)' }}>
-                👤 Passenger Details
-              </h2>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
-                {[
-                  ['Full Name', `${trip.passenger?.firstName || ''} ${trip.passenger?.lastName || ''}`.trim() || '--'],
-                  ['Email', trip.passenger?.email || '--'],
-                  ['Phone', trip.passenger?.phone ? `+91 ${trip.passenger.phone}` : '--'],
-                  ['Passport / ID', trip.passenger?.passport || 'Not provided'],
-                  ['Nationality', trip.passenger?.nationality || '--'],
-                ].map(([label, value]) => (
-                  <div key={label} style={{ padding: '0.75rem 1rem', background: 'rgba(255,255,255,0.025)', borderRadius: 10 }}>
-                    <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 3 }}>{label}</div>
-                    <div style={{ fontWeight: 600, fontSize: '0.9rem', wordBreak: 'break-all' }}>{value}</div>
-                  </div>
-                ))}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '10px' }}>
+                <h2 style={{ fontFamily: 'var(--font-syne)', fontWeight: 700, fontSize: '1.1rem', margin: 0, display: 'flex', alignItems: 'center', gap: 8, color: 'var(--color-accent)' }}>
+                  👤 Passenger Details
+                </h2>
+                {!isCancelled && !isPayFailed && !isEditing && (
+                  <button 
+                    onClick={() => setIsEditing(true)}
+                    className="btn-ghost"
+                    style={{ padding: '6px 14px', fontSize: '0.78rem', borderRadius: '8px' }}
+                  >
+                    ✏️ Edit Details
+                  </button>
+                )}
               </div>
+
+              {isEditing ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                      <label style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '1px' }}>First Name *</label>
+                      <input 
+                        type="text" 
+                        value={editFirstName} 
+                        onChange={e => setEditFirstName(e.target.value)} 
+                        className="sky-input" 
+                        style={{ padding: '10px 14px' }} 
+                      />
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                      <label style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '1px' }}>Last Name *</label>
+                      <input 
+                        type="text" 
+                        value={editLastName} 
+                        onChange={e => setEditLastName(e.target.value)} 
+                        className="sky-input" 
+                        style={{ padding: '10px 14px' }} 
+                      />
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                      <label style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '1px' }}>Email (Registered - Read Only)</label>
+                      <input 
+                        type="text" 
+                        value={trip.passenger?.email || '--'} 
+                        disabled 
+                        className="sky-input" 
+                        style={{ padding: '10px 14px', opacity: 0.5, cursor: 'not-allowed' }} 
+                      />
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                      <label style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '1px' }}>Phone (Registered - Read Only)</label>
+                      <input 
+                        type="text" 
+                        value={trip.passenger?.phone ? `+91 ${trip.passenger.phone}` : '--'} 
+                        disabled 
+                        className="sky-input" 
+                        style={{ padding: '10px 14px', opacity: 0.5, cursor: 'not-allowed' }} 
+                      />
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                      <label style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '1px' }}>Passport / ID</label>
+                      <input 
+                        type="text" 
+                        value={editPassport} 
+                        onChange={e => setEditPassport(e.target.value)} 
+                        placeholder="Optional"
+                        className="sky-input" 
+                        style={{ padding: '10px 14px' }} 
+                      />
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                      <label style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '1px' }}>Nationality</label>
+                      <select 
+                        value={editNationality} 
+                        onChange={e => setEditNationality(e.target.value)} 
+                        className="sky-input"
+                        style={{ padding: '10px 14px' }}
+                      >
+                        <option value="">Select Nationality</option>
+                        <option>Indian</option><option>American</option><option>British</option><option>UAE</option><option>Other</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {saveError && (
+                    <div style={{ color: '#ff6060', fontSize: '0.8rem', fontWeight: 600 }}>⚠ {saveError}</div>
+                  )}
+
+                  <div style={{ display: 'flex', gap: '10px', marginTop: '0.5rem' }}>
+                    <button 
+                      onClick={handleSaveDetails} 
+                      disabled={saving}
+                      className="btn-accent"
+                      style={{ padding: '8px 20px', borderRadius: '10px' }}
+                    >
+                      {saving ? 'Saving...' : '💾 Save Changes'}
+                    </button>
+                    <button 
+                      onClick={() => {
+                        setIsEditing(false)
+                        setEditFirstName(trip.passenger?.firstName || '')
+                        setEditLastName(trip.passenger?.lastName || '')
+                        setEditPassport(trip.passenger?.passport || '')
+                        setEditNationality(trip.passenger?.nationality || '')
+                        setSaveError('')
+                      }}
+                      disabled={saving}
+                      className="btn-ghost"
+                      style={{ padding: '8px 20px', borderRadius: '10px' }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+                  {[
+                    ['First Name', trip.passenger?.firstName || '--'],
+                    ['Last Name', trip.passenger?.lastName || '--'],
+                    ['Email', trip.passenger?.email || '--'],
+                    ['Phone', trip.passenger?.phone ? `+91 ${trip.passenger.phone}` : '--'],
+                    ['Passport / ID', trip.passenger?.passport || 'Not provided'],
+                    ['Nationality', trip.passenger?.nationality || '--'],
+                  ].map(([label, value]) => (
+                    <div key={label} style={{ padding: '0.75rem 1rem', background: 'var(--filter-group-bg)', borderRadius: 10, border: '1px solid var(--divider-color)' }}>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 3 }}>{label}</div>
+                      <div style={{ fontWeight: 600, fontSize: '0.9rem', wordBreak: 'break-all' }}>{value}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* ── Payment Summary ─────────────────────────────────────── */}
@@ -353,14 +568,14 @@ export default function TripDetails() {
                     <span style={{ color: label === 'Discount' ? '#22d07a' : 'inherit' }}>{value}</span>
                   </div>
                 ))}
-                <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '0.5rem 0' }} />
+                <div style={{ height: 1, background: 'var(--divider-color)', margin: '0.5rem 0' }} />
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: '1.15rem' }}>
                   <span>Total Paid</span>
                   <span style={{ color: 'var(--color-accent)' }}>
                     ₹{(trip.pricing?.total || 0).toLocaleString('en-IN')}
                   </span>
                 </div>
-                <div style={{ height: 1, background: 'rgba(255,255,255,0.06)', margin: '0.5rem 0' }} />
+                <div style={{ height: 1, background: 'var(--divider-color)', margin: '0.5rem 0' }} />
                 {[
                   ['Payment Method', trip.paymentMethod === 'upi' ? 'UPI' : trip.paymentMethod === 'netbanking' ? 'Net Banking' : 'Credit / Debit Card'],
                   ['Payment ID', trip.paymentId || '--'],
@@ -369,7 +584,7 @@ export default function TripDetails() {
                 ].filter(Boolean).map(([label, value]) => (
                   <div key={label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--color-text-muted)', padding: '2px 0' }}>
                     <span>{label}</span>
-                    <span style={{ color: label === 'Cancelled On' ? '#ef4444' : '#e8f0ff', fontWeight: 500, fontFamily: label === 'Payment ID' ? 'monospace' : 'inherit', fontSize: label === 'Payment ID' ? '0.75rem' : 'inherit' }}>{value}</span>
+                    <span style={{ color: label === 'Cancelled On' ? '#ef4444' : 'var(--text-primary)', fontWeight: 500, fontFamily: label === 'Payment ID' ? 'monospace' : 'inherit', fontSize: label === 'Payment ID' ? '0.75rem' : 'inherit' }}>{value}</span>
                   </div>
                 ))}
               </div>
@@ -461,23 +676,23 @@ export default function TripDetails() {
               <div style={{ width: 60, height: 60, borderRadius: '50%', background: 'rgba(239,68,68,0.1)', border: '2px solid rgba(239,68,68,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.75rem', margin: '0 auto 1.25rem' }}>⚠</div>
               <h2 style={{ fontFamily: 'var(--font-syne)', fontWeight: 700, marginBottom: '0.75rem', color: 'var(--color-accent)' }}>Cancel Booking?</h2>
               <p style={{ color: 'var(--color-text-muted)', fontSize: '0.9rem', marginBottom: '1.25rem' }}>
-                This will cancel your {isHotel ? 'hotel reservation' : 'flight'} for <strong style={{ color: '#fff' }}>{isHotel ? trip.hotel?.name : `${trip.flight?.from} → ${trip.flight?.to}`}</strong>.
+                This will cancel your {isHotel ? 'hotel reservation' : 'flight'} for <strong style={{ color: 'var(--text-primary)' }}>{isHotel ? trip.hotel?.name : `${trip.flight?.from} → ${trip.flight?.to}`}</strong>.
               </p>
-              <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 12, padding: '1rem', marginBottom: '1.25rem', textAlign: 'left' }}>
+              <div style={{ background: 'var(--filter-group-bg)', border: '1px solid var(--divider-color)', borderRadius: 12, padding: '1rem', marginBottom: '1.25rem', textAlign: 'left' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem', color: 'var(--color-text-muted)', marginBottom: 6 }}>
                   <span>Booking Amount</span><span>₹{(trip.pricing?.total || 0).toLocaleString('en-IN')}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem', color: '#ef4444', marginBottom: 6 }}>
                   <span>Cancellation Fee (10%)</span><span>-₹{Math.round((trip.pricing?.total || 0) * 0.1).toLocaleString('en-IN')}</span>
                 </div>
-                <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '0.5rem 0' }} />
+                <div style={{ height: 1, background: 'var(--divider-color)', margin: '0.5rem 0' }} />
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
                   <span>Refund Amount</span><span style={{ color: '#22d07a' }}>₹{Math.round((trip.pricing?.total || 0) * 0.9).toLocaleString('en-IN')}</span>
                 </div>
               </div>
               <div style={{ display: 'flex', gap: '0.75rem' }}>
                 <button className="confirm-btn" onClick={() => setShowCancelConfirm(false)}
-                  style={{ background: 'transparent', border: '1.5px solid rgba(255,255,255,0.15)', color: '#fff' }}>
+                  style={{ background: 'transparent', border: '1.5px solid var(--divider-color)', color: 'var(--text-primary)' }}>
                   Keep Booking
                 </button>
                 <button className="confirm-btn" onClick={handleCancel} disabled={cancelling}
@@ -493,4 +708,174 @@ export default function TripDetails() {
       <Footer />
     </>
   )
+}
+
+function addTimeToStr(timeStr, durationStr) {
+  if (!timeStr || !durationStr) return timeStr;
+  try {
+    const parts = timeStr.split(':');
+    if (parts.length < 2) return timeStr;
+    const h = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10);
+    const durH = parseInt(durationStr.match(/(\d+)h/)?.[1] || 0, 10);
+    const durM = parseInt(durationStr.match(/(\d+)m/)?.[1] || 0, 10);
+    
+    let totalMins = (h * 60 + m) + (durH * 60 + durM);
+    let finalH = Math.floor(totalMins / 60) % 24;
+    let finalM = totalMins % 60;
+    return `${String(finalH).padStart(2, '0')}:${String(finalM).padStart(2, '0')}`;
+  } catch (e) {
+    return timeStr;
+  }
+}
+
+function renderTripJourneyTimeline(item) {
+  if (!item) return null;
+
+  const stopsStr = String(item.stops || '').toLowerCase();
+  const stopsCount = stopsStr.includes('direct') || stopsStr === '0' || stopsStr.includes('0') 
+    ? 0 
+    : (stopsStr.includes('1') || stopsStr === '1 stop' ? 1 : 2);
+
+  let layovers = item.layovers || [];
+  let segmentDurations = item.segmentDurations || [];
+
+  if (stopsCount > 0 && layovers.length === 0) {
+    const getDurMins = (d) => {
+      if (!d) return 120;
+      const m = d.match(/\d+/g);
+      return m ? (+m[0] * 60 + +(m[1] || 0)) : 120;
+    };
+    
+    const formatMins = (mins) => {
+      const h = Math.floor(mins / 60);
+      const m = mins % 60;
+      return `${h}h ${m}m`;
+    };
+
+    const totalMins = getDurMins(item.duration);
+    const layoverCities = ['Mumbai (BOM)', 'Delhi (DEL)', 'Bangalore (BLR)', 'Chennai (MAA)', 'Hyderabad (HYD)', 'Pune (PNQ)', 'Kolkata (CCU)'];
+    const fromCity = item.from || '';
+    const toCity = item.to || '';
+    const availableCities = layoverCities.filter(c => !c.toLowerCase().includes(fromCity.toLowerCase()) && !c.toLowerCase().includes(toCity.toLowerCase()));
+
+    if (stopsCount === 1) {
+      const layoverCity = availableCities[Math.floor(Math.random() * availableCities.length)] || 'Hyderabad (HYD)';
+      const layoverMins = Math.min(Math.floor(totalMins * 0.3), 45 + Math.floor(Math.random() * 8) * 10); 
+      const flyingMins = Math.max(60, totalMins - layoverMins);
+      const seg1 = Math.floor(flyingMins * (0.45 + Math.random() * 0.1));
+      const seg2 = flyingMins - seg1;
+
+      layovers = [{ city: layoverCity, duration: formatMins(layoverMins) }];
+      segmentDurations = [formatMins(seg1), formatMins(seg2)];
+    } else {
+      const lay1City = availableCities[Math.floor(Math.random() * availableCities.length)] || 'Hyderabad (HYD)';
+      const remainingCities = availableCities.filter(c => c !== lay1City);
+      const lay2City = remainingCities[Math.floor(Math.random() * remainingCities.length)] || 'Bangalore (BLR)';
+
+      const lay1Mins = Math.min(Math.floor(totalMins * 0.15), 45 + Math.floor(Math.random() * 6) * 10);
+      const lay2Mins = Math.min(Math.floor(totalMins * 0.15), 45 + Math.floor(Math.random() * 6) * 10);
+      const flyingMins = Math.max(90, totalMins - lay1Mins - lay2Mins);
+      const seg1 = Math.floor(flyingMins * 0.35);
+      const seg2 = Math.floor(flyingMins * 0.3);
+      const seg3 = flyingMins - seg1 - seg2;
+
+      layovers = [
+        { city: lay1City, duration: formatMins(lay1Mins) },
+        { city: lay2City, duration: formatMins(lay2Mins) }
+      ];
+      segmentDurations = [formatMins(seg1), formatMins(seg2), formatMins(seg3)];
+    }
+  }
+
+  const times = [];
+  
+  if (stopsCount === 0 || layovers.length === 0) {
+    times.push({ 
+      type: 'flight', 
+      from: item.from, 
+      to: item.to, 
+      dep: item.dep, 
+      arr: item.arr, 
+      dur: item.duration || '2h 00m' 
+    });
+  } else if (stopsCount === 1 || layovers.length === 1) {
+    const dep1 = item.dep;
+    const arr1 = addTimeToStr(dep1, segmentDurations[0] || '1h 30m');
+    times.push({ type: 'flight', from: item.from, to: layovers[0].city, dep: dep1, arr: arr1, dur: segmentDurations[0] || '1h 30m' });
+    
+    times.push({ type: 'layover', city: layovers[0].city, dur: layovers[0].duration });
+    
+    const dep2 = addTimeToStr(arr1, layovers[0].duration);
+    const arr2 = item.arr;
+    times.push({ type: 'flight', from: layovers[0].city, to: item.to, dep: dep2, arr: arr2, dur: segmentDurations[1] || '1h 30m' });
+  } else {
+    const d1 = item.dep;
+    const a1 = addTimeToStr(d1, segmentDurations[0] || '1h 10m');
+    times.push({ type: 'flight', from: item.from, to: layovers[0].city, dep: d1, arr: a1, dur: segmentDurations[0] || '1h 10m' });
+    
+    times.push({ type: 'layover', city: layovers[0].city, dur: layovers[0].duration });
+    
+    const d2 = addTimeToStr(a1, layovers[0].duration);
+    const a2 = addTimeToStr(d2, segmentDurations[1] || '1h 15m');
+    times.push({ type: 'flight', from: layovers[0].city, to: layovers[1].city, dep: d2, arr: a2, dur: segmentDurations[1] || '1h 15m' });
+    
+    times.push({ type: 'layover', city: layovers[1].city, dur: layovers[1].duration });
+    
+    const d3 = addTimeToStr(a2, layovers[1].duration);
+    const a3 = item.arr;
+    times.push({ type: 'flight', from: layovers[1].city, to: item.to, dep: d3, arr: a3, dur: segmentDurations[2] || '1h 10m' });
+  }
+  
+  return (
+    <div 
+      style={{
+        marginTop: '1.25rem',
+        padding: '1.25rem',
+        background: 'var(--filter-group-bg)',
+        borderRadius: '16px',
+        border: '1px solid var(--divider-color)',
+      }}
+    >
+      <div style={{ fontSize: '0.8rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-accent)', letterSpacing: '0.5px', marginBottom: '0.75rem' }}>
+        ✈ Journey Timeline
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', position: 'relative', paddingLeft: '1.25rem' }}>
+        <div style={{ position: 'absolute', left: '4px', top: '8px', bottom: '8px', width: '2px', background: 'var(--divider-color)' }}></div>
+        
+        {times.map((timelineItem, idx) => {
+          if (timelineItem.type === 'flight') {
+            return (
+              <div key={idx} style={{ position: 'relative' }}>
+                <div style={{ position: 'absolute', left: '-23px', top: '5px', width: '8px', height: '8px', borderRadius: '50%', background: 'var(--color-accent)', boxShadow: '0 0 6px var(--color-accent)' }}></div>
+                
+                <div className="flex justify-between items-center flex-wrap gap-2 text-sm">
+                  <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>{timelineItem.from} → {timelineItem.to}</span>
+                  <span className="text-xs text-text-muted">{timelineItem.dep} - {timelineItem.arr} ({timelineItem.dur})</span>
+                </div>
+              </div>
+            );
+          } else {
+            return (
+              <div key={idx} style={{ 
+                position: 'relative',
+                padding: '0.5rem 0.75rem',
+                background: 'rgba(245, 166, 35, 0.06)',
+                border: '1px solid rgba(245, 166, 35, 0.15)',
+                borderRadius: '10px',
+                color: 'var(--color-accent)',
+                fontSize: '0.78rem',
+                fontWeight: 500,
+                margin: '0.25rem 0'
+              }}>
+                <div style={{ position: 'absolute', left: '-22px', top: '10px', width: '6px', height: '6px', borderRadius: '50%', background: '#ffbe4d' }}></div>
+                
+                <span>⏳ <strong>Layover:</strong> {timelineItem.dur} in {timelineItem.city}</span>
+              </div>
+            );
+          }
+        })}
+      </div>
+    </div>
+  );
 }

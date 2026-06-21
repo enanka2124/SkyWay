@@ -235,7 +235,65 @@ function getDateDotColor(targetDate) {
   return 'green'; // 🟢 22+ days: advance booking (cheapest)
 }
 
-function buildMockFlights(from, to, count = 12, targetDate = null) {
+function populateStopDetails(flight) {
+  const getDurMins = (d) => {
+    if (!d) return 120;
+    const m = d.match(/\d+/g);
+    return m ? (+m[0] * 60 + +(m[1] || 0)) : 120;
+  };
+  
+  const formatMins = (mins) => {
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return `${h}h ${m}m`;
+  };
+
+  const totalMins = getDurMins(flight.duration);
+  const stopsStr = String(flight.stops || '').toLowerCase();
+  const stopsCount = stopsStr.includes('direct') || stopsStr === '0' || stopsStr.includes('0') 
+    ? 0 
+    : (stopsStr.includes('1') || stopsStr === '1 stop' ? 1 : 2);
+
+  const layoverCities = ['Mumbai (BOM)', 'Delhi (DEL)', 'Bangalore (BLR)', 'Chennai (MAA)', 'Hyderabad (HYD)', 'Pune (PNQ)', 'Kolkata (CCU)'];
+  const fromCity = flight.from || '';
+  const toCity = flight.to || '';
+  const availableCities = layoverCities.filter(c => !c.toLowerCase().includes(fromCity.toLowerCase()) && !c.toLowerCase().includes(toCity.toLowerCase()));
+
+  if (stopsCount === 0) {
+    flight.layovers = [];
+    flight.segmentDurations = [flight.duration];
+  } else if (stopsCount === 1) {
+    const layoverCity = availableCities[Math.floor(Math.random() * availableCities.length)] || 'Hyderabad (HYD)';
+    const layoverMins = Math.min(Math.floor(totalMins * 0.3), 45 + Math.floor(Math.random() * 8) * 10); 
+    const flyingMins = Math.max(60, totalMins - layoverMins);
+    const seg1 = Math.floor(flyingMins * (0.45 + Math.random() * 0.1));
+    const seg2 = flyingMins - seg1;
+
+    flight.layover = { city: layoverCity, duration: formatMins(layoverMins) };
+    flight.layovers = [{ city: layoverCity, duration: formatMins(layoverMins) }];
+    flight.segmentDurations = [formatMins(seg1), formatMins(seg2)];
+  } else {
+    const lay1City = availableCities[Math.floor(Math.random() * availableCities.length)] || 'Hyderabad (HYD)';
+    const remainingCities = availableCities.filter(c => c !== lay1City);
+    const lay2City = remainingCities[Math.floor(Math.random() * remainingCities.length)] || 'Bangalore (BLR)';
+
+    const lay1Mins = Math.min(Math.floor(totalMins * 0.15), 45 + Math.floor(Math.random() * 6) * 10);
+    const lay2Mins = Math.min(Math.floor(totalMins * 0.15), 45 + Math.floor(Math.random() * 6) * 10);
+    const flyingMins = Math.max(90, totalMins - lay1Mins - lay2Mins);
+    const seg1 = Math.floor(flyingMins * 0.35);
+    const seg2 = Math.floor(flyingMins * 0.3);
+    const seg3 = flyingMins - seg1 - seg2;
+
+    flight.layover = { city: lay1City, duration: formatMins(lay1Mins) };
+    flight.layovers = [
+      { city: lay1City, duration: formatMins(lay1Mins) },
+      { city: lay2City, duration: formatMins(lay2Mins) }
+    ];
+    flight.segmentDurations = [formatMins(seg1), formatMins(seg2), formatMins(seg3)];
+  }
+}
+
+function buildMockFlights(from, to, count = 12, targetDate = null, cabin = 'Economy') {
   const airlines = [
     { name: 'IndiGo', code: '6E', multiplier: 1.00 },
     { name: 'Air India', code: 'AI', multiplier: 1.18 },
@@ -265,6 +323,19 @@ function buildMockFlights(from, to, count = 12, targetDate = null) {
      */
     const stopRoll = Math.random();
     const stopsLabel = stopRoll < 0.65 ? 'Direct' : stopRoll < 0.93 ? '1 Stop' : '2 Stops';
+
+    let layover = null;
+    if (stopsLabel === '1 Stop') {
+      const layoverCities = ['Mumbai (BOM)', 'Delhi (DEL)', 'Bangalore (BLR)', 'Chennai (MAA)', 'Hyderabad (HYD)', 'Pune (PNQ)'];
+      const availableCities = layoverCities.filter(c => !c.toLowerCase().includes(from.toLowerCase()) && !c.toLowerCase().includes(to.toLowerCase()));
+      const layoverCity = availableCities[Math.floor(Math.random() * availableCities.length)] || 'Hyderabad (HYD)';
+      const layoverHours = Math.floor(Math.random() * 2) + 1;
+      const layoverMins = Math.floor(Math.random() * 6) * 10;
+      layover = {
+        city: layoverCity,
+        duration: `${layoverHours}h ${layoverMins}m`
+      };
+    }
 
     // Duration is correlated with stops (stops add 1-3 extra hours)
     const baseDurHours = Math.floor(Math.random() * 2) + 1;  // 1-2h for direct
@@ -303,7 +374,7 @@ function buildMockFlights(from, to, count = 12, targetDate = null) {
 
     const fmt = (h, m) => `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 
-    flights.push({
+    const fl = {
       id: i + 1,
       airline: airline.name,
       icon: '✈️',
@@ -316,14 +387,25 @@ function buildMockFlights(from, to, count = 12, targetDate = null) {
       duration: `${durationHours}h ${durationMins}m`,
       stops: stopsLabel,
       baggage: airline.name === 'Air India' || airline.name === 'Vistara' ? '23 kg' : '15 kg',
-      meal: airline.name === 'Vistara' || airline.name === 'Air India' ? 'Included' : 'Standard'
-    });
+      meal: airline.name === 'Vistara' || airline.name === 'Air India' ? 'Included' : 'Standard',
+      cabin
+    };
+    populateStopDetails(fl);
+    flights.push(fl);
   }
   return flights;
 }
 
-function adjustFlightPrices(flights, from, to, targetDate) {
+function adjustFlightPrices(flights, from, to, targetDate, cabin = 'Economy') {
   if (!flights || flights.length === 0) return flights;
+
+  const cabinMultipliers = {
+    'Economy': 1.0,
+    'Premium Economy': 1.35,
+    'Business': 2.25,
+    'First Class': 4.0
+  };
+  const cabinMultiplier = cabinMultipliers[cabin] || 1.0;
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -414,6 +496,9 @@ function adjustFlightPrices(flights, from, to, targetDate) {
     targetMaxPrice = baseMax + locationMaxOffset; // only max gets wider for longer routes
   }
 
+  targetMinPrice = targetMinPrice * cabinMultiplier;
+  targetMaxPrice = targetMaxPrice * cabinMultiplier;
+
   // 3. For each flight, generate a raw price score incorporating seat availability and peak hours
   flights.forEach(flight => {
     // Set seatsLeft if not present (between 2 and 45)
@@ -484,6 +569,9 @@ function adjustFlightPrices(flights, from, to, targetDate) {
     // Scale up hard minimums for international routes
     if (longHaul.some(c => f.includes(c) || t.includes(c))) hardMin = hardMin * 8;
     else if (regional.some(c => f.includes(c) || t.includes(c))) hardMin = hardMin * 3;
+    
+    hardMin = hardMin * cabinMultiplier;
+    
     const safetyMin = Math.max(hardMin, targetMinPrice * 0.95);
     const safetyMax = targetMaxPrice * 1.05;
     flight.price = Math.max(Math.floor(safetyMin), Math.min(Math.floor(safetyMax), Math.floor(priceValue)));
@@ -494,7 +582,7 @@ function adjustFlightPrices(flights, from, to, targetDate) {
 
 // GET /api/flights
 router.get('/', async (req, res) => {
-  const { from = 'Mumbai', to = 'Delhi', date } = req.query;
+  const { from = 'Mumbai', to = 'Delhi', date, cabin = 'Economy' } = req.query;
   const targetDate = date || new Date().toISOString().split('T')[0];
 
   try {
@@ -529,7 +617,7 @@ router.get('/', async (req, res) => {
         const durMins = leg.durationInMinutes;
         const hrs = Math.floor(durMins / 60);
         const mins = durMins % 60;
-        return {
+        const flightItem = {
           id: index + 1,
           airline: carrier.name,
           icon: '✈️',
@@ -541,12 +629,15 @@ router.get('/', async (req, res) => {
           duration: `${hrs}h ${mins}m`,
           stops: leg.stopCount === 0 ? 'Direct' : `${leg.stopCount} Stop${leg.stopCount > 1 ? 's' : ''}`,
           baggage: '15 kg',
-          meal: 'Standard'
+          meal: 'Standard',
+          cabin
         };
+        populateStopDetails(flightItem);
+        return flightItem;
       });
 
       // Scale/adjust prices to match dot colors and the 4k minimum rule
-      adjustFlightPrices(apiFlights, from, to, targetDate);
+      adjustFlightPrices(apiFlights, from, to, targetDate, cabin);
 
       // Compute filter summary prices
       const getDurMins = d => {
@@ -624,10 +715,10 @@ router.get('/', async (req, res) => {
   } catch (error) {
     console.log('Skyscanner API Error:', error.message, '— using market-realistic fallback');
 
-    const mockFlights = buildMockFlights(from, to, 30, targetDate);
+    const mockFlights = buildMockFlights(from, to, 30, targetDate, cabin);
 
     // Scale/adjust prices to match dot colors and the 4k minimum rule
-    adjustFlightPrices(mockFlights, from, to, targetDate);
+    adjustFlightPrices(mockFlights, from, to, targetDate, cabin);
 
     const getDurMins = d => {
       if (!d) return 0;
@@ -718,6 +809,7 @@ router.post('/multi', async (req, res) => {
       const from = leg.from || 'Mumbai';
       const to = leg.to || 'Delhi';
       const date = leg.date || new Date().toISOString().split('T')[0];
+      const cabin = leg.cabin || 'Economy';
 
       const originParams = await getAirportDetails(from);
       const destinationParams = await getAirportDetails(to);
@@ -744,7 +836,14 @@ router.post('/multi', async (req, res) => {
           const l = itin.legs[0];
           const carrier = l.carriers.marketing[0];
           const durMins = l.durationInMinutes;
-          return {
+          let layover = null;
+          if (l.stopCount === 1) {
+            layover = {
+              city: 'Hyderabad (HYD)',
+              duration: '1h 35m'
+            };
+          }
+          const flightItem = {
             id: index + 1, airline: carrier.name, icon: '✈️',
             code: carrier.alternateId || carrier.displayCode || 'FL',
             from, to, price: Math.floor(itin.price.raw),
@@ -752,11 +851,14 @@ router.post('/multi', async (req, res) => {
             arr: new Date(l.arrival).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             duration: `${Math.floor(durMins / 60)}h ${durMins % 60}m`,
             stops: l.stopCount === 0 ? 'Direct' : `${l.stopCount} Stop${l.stopCount > 1 ? 's' : ''}`,
-            baggage: '15 kg', meal: 'Standard'
+            baggage: '15 kg', meal: 'Standard',
+            cabin
           };
+          populateStopDetails(flightItem);
+          return flightItem;
         });
         // Scale/adjust prices to match dot colors and the 4k minimum rule
-        adjustFlightPrices(apiFlights, from, to, date);
+        adjustFlightPrices(apiFlights, from, to, date, cabin);
       }
       return { leg: i + 1, from, to, date, flights: apiFlights };
     }));
@@ -769,8 +871,9 @@ router.post('/multi', async (req, res) => {
       const from = leg.from || 'Mumbai';
       const to = leg.to || 'Delhi';
       const date = leg.date || new Date().toISOString().split('T')[0];
-      const flights = buildMockFlights(from, to, 20, date);
-      adjustFlightPrices(flights, from, to, date);
+      const cabin = leg.cabin || 'Economy';
+      const flights = buildMockFlights(from, to, 20, date, cabin);
+      adjustFlightPrices(flights, from, to, date, cabin);
       flights.sort((a, b) => a.price - b.price);
       const formattedFlights = flights.map((f, idx) => ({ ...f, id: idx + 1 }));
       return { leg: i + 1, from, to, date, flights: formattedFlights, source: 'market-proxy' };
