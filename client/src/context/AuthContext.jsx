@@ -6,7 +6,7 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
 
-  // Load user from sessionStorage on mount and verify with server
+  // restore session on page load, verify it's still valid server-side
   useEffect(() => {
     const checkAuth = async () => {
       const stored = sessionStorage.getItem('skyway_user')
@@ -90,7 +90,6 @@ export function AuthProvider({ children }) {
     // Initialize timer
     resetTimer()
 
-    // Activity event listeners
     const events = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart']
     const handleActivity = () => resetTimer()
 

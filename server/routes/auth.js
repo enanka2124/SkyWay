@@ -1,29 +1,24 @@
 const express = require('express');
 const multer = require('multer');
-const nodemailer = require('nodemailer');
 const path = require('path');
 const fs = require('fs');
 const router = express.Router();
 
-// --- Internal Modules ---
 const User = require('../models/User');
 const { PDFParse } = require('pdf-parse');
 const crypto = require('crypto');
-const { 
-  sendRegistrationEmail, 
-  sendResetPasswordEmail, 
-  sendRecoveryEmail 
+const {
+  sendRegistrationEmail,
+  sendResetPasswordEmail,
+  sendRecoveryEmail
 } = require('../utils/mailer');
 
-// Ensure the uploads directory exists for ID proof storage
+// make sure uploads dir exists
 const uploadsDir = path.join(__dirname, '..', 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-// --- File Upload Configuration ---
-// We use Multer to handle Aadhaar/Voter ID PDF uploads.
-// Files are given a unique timestamped name to avoid collisions.
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadsDir),
   filename: (req, file, cb) => {
@@ -34,7 +29,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB Cap
+  limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     if (file.mimetype === 'application/pdf') {
       cb(null, true);
@@ -44,17 +39,13 @@ const upload = multer({
   },
 });
 
-/**
- * Utility: Wraps Multer middleware in a Promise.
- * Necessary for cleaner async/await flow in route handlers.
- */
+// wraps multer in a promise for cleaner async/await usage
 function runUpload(req, res) {
   return new Promise((resolve, reject) => {
     upload.single('aadhaarCard')(req, res, (err) => {
       if (err) {
         if (err.code === 'LIMIT_UNEXPECTED_FILE') {
-          console.error(`[UPLOAD ERROR] Unexpected field received. Please check your Postman key name.`);
-          reject(new Error(`Unexpected field: Ensure your file key is exactly 'aadhaarCard'`));
+          reject(new Error(`Unexpected field: make sure the file key is 'aadhaarCard'`));
         } else {
           reject(err);
         }
@@ -65,16 +56,8 @@ function runUpload(req, res) {
   });
 }
 
-// --- Comm Services Removed (Using ../utils/mailer.js) ---
-
-// --- Authentication Routes ---
-
-/**
- * POST /api/auth/register
- * Handles multi-step registration with PDF document validation.
- */
+// POST /api/auth/register
 router.post('/register', async (req, res) => {
-  // 1. Handle Multipart Data (File Upload)
   try {
     await runUpload(req, res);
   } catch (uploadErr) {
@@ -84,12 +67,10 @@ router.post('/register', async (req, res) => {
   try {
     const { firstName, lastName, email, phone, password, address, city, state, pincode } = req.body;
 
-    // 2. Basic Validation
     if (!firstName || !lastName || !email || !phone || !password) {
       return res.status(400).json({ success: false, error: 'Personal details are missing' });
     }
 
-    // We accept both 'pincode' and 'pinCode' for better compatibility
     const finalPincode = pincode || req.body.pinCode;
 
     if (!address || !city || !state || !finalPincode) {
@@ -99,37 +80,30 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ success: false, error: 'ID proof document is required' });
     }
 
-    // 3. Smart Document Verification (Filename Match)
-    // We check if the filename contains the user's name or keywords like 'aadhar' or 'voter'.
+    // basic check: the filename should reference a known ID document type
     try {
       const fileName = (req.file.originalname || '').toLowerCase();
       const idKeywords = ['aadhar', 'aadhaar', 'voter', 'passport'];
       const isFilenameValid = idKeywords.some(keyword => fileName.includes(keyword));
 
-      console.log(`[AUTH] ID Verification for ${firstName} ${lastName} - Filename: ${fileName} - Valid: ${isFilenameValid}`);
+      console.log(`ID verification for ${firstName} ${lastName}: ${fileName} — valid: ${isFilenameValid}`);
 
       if (!isFilenameValid) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'Invalid PDF'
-        });
+        return res.status(400).json({ success: false, error: 'Invalid PDF' });
       }
     } catch (err) {
-      console.error('[AUTH ERROR] ID verification logic failed:', err.message);
-      // We don't block the user if the logic itself crashes, but we log it.
+      console.error('ID verification check failed:', err.message);
     }
 
-
-    // 4. Duplicate Check & Re-registration Logic
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
     const emailConflict = await User.findOne({ email });
     if (emailConflict) {
       if (emailConflict.deletedAt) {
         if (emailConflict.deletedAt > sevenDaysAgo) {
-           return res.status(409).json({ success: false, error: 'Account was deleted recently. Please wait 7 days from deletion to re-register.' });
+          return res.status(409).json({ success: false, error: 'Account was deleted recently. Please wait 7 days from deletion to re-register.' });
         } else {
-           await User.findByIdAndDelete(emailConflict._id); // Hard delete old record to free email
+          await User.findByIdAndDelete(emailConflict._id);
         }
       } else {
         return res.status(409).json({ success: false, error: 'Email already in use' });
@@ -140,16 +114,15 @@ router.post('/register', async (req, res) => {
     if (phoneConflict) {
       if (phoneConflict.deletedAt) {
         if (phoneConflict.deletedAt > sevenDaysAgo) {
-           return res.status(409).json({ success: false, error: 'Account was deleted recently. Please wait 7 days from deletion to re-register.' });
+          return res.status(409).json({ success: false, error: 'Account was deleted recently. Please wait 7 days from deletion to re-register.' });
         } else {
-           await User.findByIdAndDelete(phoneConflict._id); // Hard delete old record to free phone
+          await User.findByIdAndDelete(phoneConflict._id);
         }
       } else {
         return res.status(409).json({ success: false, error: 'Phone number already registered' });
       }
     }
 
-    // 5. Create User
     const newUser = new User({
       firstName,
       lastName,
@@ -161,13 +134,10 @@ router.post('/register', async (req, res) => {
     });
 
     await newUser.save();
-    
-    // Send stylish registration success email
+
     const mailInfo = await sendRegistrationEmail(newUser);
-    
-    // Simulate a Live Push Notification to the user's phone/dashboard
-    console.log(`\n[LIVE PUSH] New User Registered: ${newUser.firstName} ${newUser.lastName}`);
-    console.log(`[LIVE PUSH] Notification sent to ${newUser.phone}: "Welcome to SkyWay! Your account is active."\n`);
+
+    console.log(`New user registered: ${newUser.firstName} ${newUser.lastName} (${newUser.email})`);
 
     const userResponse = {
       _id: newUser._id,
@@ -176,10 +146,10 @@ router.post('/register', async (req, res) => {
       email: newUser.email,
       phone: newUser.phone,
     };
-    
-    res.status(201).json({ 
-      success: true, 
-      message: 'Congratulations! Welcome aboard.', 
+
+    res.status(201).json({
+      success: true,
+      message: 'Congratulations! Welcome aboard.',
       user: userResponse,
       emailSent: !!mailInfo
     });
@@ -189,10 +159,7 @@ router.post('/register', async (req, res) => {
   }
 });
 
-/**
- * POST /api/auth/login
- * Standard credential-based entry.
- */
+// POST /api/auth/login
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -211,26 +178,25 @@ router.post('/login', async (req, res) => {
     }
 
     const authResponse = {
-      _id:       user._id,
+      _id: user._id,
       firstName: user.firstName,
-      lastName:  user.lastName,
-      email:     user.email,
-      phone:     user.phone,
+      lastName: user.lastName,
+      email: user.email,
+      phone: user.phone,
     };
     return res.json({ success: true, message: 'Logged in successfully', user: authResponse });
 
   } catch (error) {
-    // Distinguish between DB-down and other errors for a clearer user message
     const isDbError = /buffering timed out|topology was destroyed|not connected|ECONNREFUSED|MongoNetworkError/i.test(error?.message || '');
     const msg = isDbError
       ? 'Service temporarily unavailable. Please try again in a moment.'
       : 'Authentication failed. Please try again.';
-    console.error('[AUTH/login]', error?.message);
+    console.error('[auth/login]', error?.message);
     return res.status(503).json({ success: false, error: msg });
   }
 });
 
-
+// POST /api/auth/forgot-password
 router.post('/forgot-password', async (req, res) => {
   try {
     const { email } = req.body;
@@ -239,31 +205,21 @@ router.post('/forgot-password', async (req, res) => {
     const user = await User.findOne({ email, deletedAt: null });
     if (!user) return res.status(404).json({ success: false, error: 'Account not found' });
 
-    // Generate secure reset token
     const resetToken = crypto.randomBytes(20).toString('hex');
-    
-    // Set token and expiry (10 minutes)
     user.resetPasswordToken = resetToken;
     user.resetPasswordExpire = Date.now() + 10 * 60 * 1000;
     await user.save();
 
     const resetUrl = `${process.env.CLIENT_URL}/reset-password/${resetToken}`;
+    await sendResetPasswordEmail(user, resetUrl);
 
-    const mailInfo = await sendResetPasswordEmail(user, resetUrl);
-
-    res.json({ 
-      success: true, 
-      message: 'Recovery link dispatched to your inbox.'
-    });
+    res.json({ success: true, message: 'Recovery link dispatched to your inbox.' });
   } catch (error) {
     res.status(500).json({ success: false, error: 'Server error during password recovery' });
   }
 });
 
-/**
- * POST /api/auth/reset-password/:token
- * Verify token and update password.
- */
+// POST /api/auth/reset-password/:token
 router.post('/reset-password/:token', async (req, res) => {
   try {
     const { password } = req.body;
@@ -278,7 +234,7 @@ router.post('/reset-password/:token', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Invalid or expired reset token' });
     }
 
-    // Set new password (the model pre-save hook will hash it)
+    // the model's pre-save hook will hash the new password
     user.password = password;
     user.resetPasswordToken = undefined;
     user.resetPasswordExpire = undefined;
@@ -290,6 +246,7 @@ router.post('/reset-password/:token', async (req, res) => {
   }
 });
 
+// POST /api/auth/forgot-email
 router.post('/forgot-email', async (req, res) => {
   try {
     const { phone } = req.body;
@@ -298,19 +255,15 @@ router.post('/forgot-email', async (req, res) => {
     const user = await User.findOne({ phone, deletedAt: null });
     if (!user) return res.status(404).json({ success: false, error: 'No account linked to this number' });
 
-    // Send account details to their email
-    const mailInfo = await sendRecoveryEmail(user);
+    await sendRecoveryEmail(user);
 
-    // Simulate a Live Push Notification / SMS to the phone number
-    console.log(`\n[LIVE PUSH] Sending recovery details to phone: ${user.phone}`);
-    console.log(`Message: SkyWay - Your registered email is ${user.email}. Check your inbox for full account details.\n`);
+    console.log(`Account recovery requested for phone: ${user.phone}`);
 
-    // Provide a hint in the response (masked email)
     const [prefix, domain] = user.email.split('@');
     const masked = `${prefix.substring(0, 2)}***@${domain}`;
 
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       message: `Account details sent to your registered email and a notification has been sent to your phone number ${user.phone}.`,
       hint: masked
     });
@@ -319,10 +272,7 @@ router.post('/forgot-email', async (req, res) => {
   }
 });
 
-/**
- * GET /api/auth/me
- * Session validation endpoint.
- */
+// GET /api/auth/me — session validation
 router.get('/me', async (req, res) => {
   try {
     const userId = req.headers['x-user-id'];
@@ -348,9 +298,7 @@ router.get('/me', async (req, res) => {
   }
 });
 
-/**
- * DELETE /api/auth/delete-account
- */
+// DELETE /api/auth/delete-account
 router.delete('/delete-account', async (req, res) => {
   try {
     const userId = req.headers['x-user-id'];

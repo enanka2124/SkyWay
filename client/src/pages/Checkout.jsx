@@ -87,7 +87,7 @@ export default function Checkout() {
   const type = booking?.type
   const item = booking?.data
 
-  // ── Parse passenger count from e.g. "2 Adults, 1 Child" or a raw number ──
+  // parses passenger count from values like "2 Adults, 1 Child" or a plain number
   const parsePassengers = (val) => {
     if (!val) return 1
     // If it's already a number (from FlightCard), use it directly

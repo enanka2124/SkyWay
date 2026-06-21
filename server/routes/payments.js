@@ -11,25 +11,17 @@ if (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET) {
     key_id: process.env.RAZORPAY_KEY_ID,
     key_secret: process.env.RAZORPAY_KEY_SECRET,
   });
-  console.log('💳 [PAYMENTS] Razorpay configuration found. Real gateway is active.');
+  console.log('Razorpay gateway is active.');
 } else {
-  console.log('💳 [PAYMENTS] Razorpay configuration missing. Operating in Simulator Mode.');
+  console.log('Razorpay keys not found. Running in simulator mode.');
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// IN-MEMORY STORES
-// ════════════════════════════════════════════════════════════════════════════
-
-// OTP sessions — keyed by sessionId
+// in-memory stores
 const otpStore = new Map();
-
-// Device-based throttle — one active OTP per deviceId
 const deviceStore = new Map();
-
-// Order status sessions — keyed by orderId
 const orderStatusStore = new Map();
 
-// Auto-cleanup every 5 min
+// clean up expired entries every 5 minutes
 setInterval(() => {
   const now = Date.now();
   for (const [key, val] of otpStore.entries()) {
@@ -43,17 +35,13 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000);
 
-// ── Nodemailer transporter (Gmail → Ethereal fallback) ─────────────────────────
-// If EMAIL_USER + EMAIL_PASS are set → use Gmail (production).
-// Otherwise → auto-create a free Ethereal test account (zero-signup).
-// Ethereal captures every email and gives a preview URL in the console.
+// nodemailer transporter — uses Gmail if credentials are set, otherwise falls back to Ethereal
 let mailer = null;
-let isDevMailer = false; // true when using Ethereal fallback
+let isDevMailer = false;
 
 async function getMailer() {
   if (mailer) return mailer;
 
-  // Try Gmail first
   if (process.env.EMAIL_USER && process.env.EMAIL_PASS && process.env.EMAIL_PASS !== 'your-app-password') {
     mailer = nodemailer.createTransport({
       service: 'gmail',
@@ -61,16 +49,16 @@ async function getMailer() {
     });
     try {
       await mailer.verify();
-      console.log('✅ [MAILER] Gmail ready for:', process.env.EMAIL_USER);
+      console.log('Mailer ready:', process.env.EMAIL_USER);
       isDevMailer = false;
       return mailer;
     } catch (err) {
-      console.log('⚠ Gmail auth failed:', err.message);
+      console.log('Gmail auth failed:', err.message);
       mailer = null;
     }
   }
 
-  // Fallback: Ethereal (free, auto-generated test account, no signup needed)
+  // fall back to Ethereal for local development
   try {
     const testAccount = await nodemailer.createTestAccount();
     mailer = nodemailer.createTransport({
@@ -80,13 +68,12 @@ async function getMailer() {
       auth: { user: testAccount.user, pass: testAccount.pass },
     });
     isDevMailer = true;
-    console.log('\n📬 [MAILER] Using FREE Ethereal test account (no Gmail configured)');
-    console.log(`   📧 Ethereal inbox: https://ethereal.email/login`);
-    console.log(`   👤 User: ${testAccount.user}`);
-    console.log(`   🔑 Pass: ${testAccount.pass}\n`);
+    console.log('Using Ethereal test mailer (no Gmail configured)');
+    console.log(`Ethereal inbox: https://ethereal.email/login`);
+    console.log(`User: ${testAccount.user} / Pass: ${testAccount.pass}`);
     return mailer;
   } catch (err) {
-    console.log('⚠ Ethereal fallback failed:', err.message);
+    console.log('Ethereal fallback failed:', err.message);
     isDevMailer = true;
     return null;
   }
@@ -96,9 +83,6 @@ function generateOtp() {
   return String(Math.floor(100000 + Math.random() * 900000));
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// UPI BANK RESOLUTION
-// ════════════════════════════════════════════════════════════════════════════
 const upiHandleBankMap = {
   'okaxis':    { bank: 'Axis Bank',             icon: '🏦', color: '#8B1A1A' },
   'okhdfcbank':{ bank: 'HDFC Bank',             icon: '🏦', color: '#004C8F' },
@@ -131,65 +115,41 @@ function resolveUpiBank(upiId) {
   return { bank: 'Your Bank', icon: '🏦', color: '#6b7280' };
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// BALANCE SIMULATION ENGINE
-//
-// How it works:
-//  - Each payment gets a simulated "virtual bank balance"
-//  - The balance is a random multiplier (0.4× – 1.8×) of the payment amount
-//  - If the balance < payment amount → INSUFFICIENT FUNDS → payment FAILS
-//  - This gives a realistic ~35% chance of failure at the boundary
-//
-// Test overrides (deterministic):
-//  - Card ending 0000 or 1111  → ALWAYS insufficient funds
-//  - Card ending 9999          → ALWAYS daily limit exceeded
-//  - UPI handle starting with "fail", "broke", or ending "fail" → ALWAYS fail
-//  - Amount > ₹5,00,000        → ALWAYS daily limit exceeded
-//
-// Realistic simulation:
-//  - Simulated balance = amount × random(0.55 – 1.85)
-//  - If simulated balance >= amount → sufficient → payment succeeds
-//  - If simulated balance < amount → insufficient → payment fails
-// ════════════════════════════════════════════════════════════════════════════
+// simulates a bank balance check against the payment amount.
+// deterministic overrides for testing:
+//   card ending 0000/1111 → insufficient funds
+//   card ending 9999      → daily limit exceeded
+//   UPI handle "fail"/"broke" → insufficient funds
+//   amount > 5,00,000     → daily limit exceeded
 function simulateBalanceCheck(amount, method, upiId, cardLast4) {
   const amt = Number(amount || 0);
 
-  // ── Deterministic test overrides: card ───────────────────────────────────
   if (cardLast4) {
     const last4 = String(cardLast4).replace(/\D/g, '').slice(-4);
     if (last4 === '0000' || last4 === '1111') {
-      console.log(`💳 Test trigger: card ending ${last4} → insufficient_funds`);
+      console.log(`Test trigger: card ending ${last4} → insufficient_funds`);
       return { sufficient: false, reason: 'insufficient_funds', balance: Math.round(amt * 0.25) };
     }
     if (last4 === '9999') {
-      console.log(`💳 Test trigger: card ending ${last4} → daily_limit_exceeded`);
+      console.log(`Test trigger: card ending ${last4} → daily_limit_exceeded`);
       return { sufficient: false, reason: 'daily_limit_exceeded', balance: 500000 };
     }
   }
 
-  // ── Deterministic test overrides: UPI ────────────────────────────────────
   if (upiId) {
     const username = upiId.split('@')[0].toLowerCase();
     if (username === 'fail' || username === 'broke' || username.endsWith('fail') || username === 'test_fail') {
-      console.log(`📱 Test trigger: UPI "${username}" → insufficient_funds`);
+      console.log(`Test trigger: UPI "${username}" → insufficient_funds`);
       return { sufficient: false, reason: 'insufficient_funds', balance: Math.round(amt * 0.25) };
     }
   }
 
-  // ── Hard limit: very large amounts ───────────────────────────────────────
   if (amt > 500000) {
     return { sufficient: false, reason: 'daily_limit_exceeded', balance: 500000 };
   }
 
-  // ── Realistic stochastic balance simulation ───────────────────────────────
-  // In live payment mode, we do not stochastically fail transactions.
-  // Always return sufficient: true, unless a deterministic test override matches.
   return { sufficient: true, balance: amt * 10 };
 }
-
-// ════════════════════════════════════════════════════════════════════════════
-// NOTIFICATION CHANNELS
-// ════════════════════════════════════════════════════════════════════════════
 
 async function tryTextbeltSms(phone, message) {
   const num = String(phone).replace(/\D/g, '');
@@ -199,13 +159,13 @@ async function tryTextbeltSms(phone, message) {
       phone: intlNum, message, key: 'textbelt',
     }, { timeout: 8000 });
     if (resp.data?.success) {
-      console.log(`✅ Textbelt SMS sent to ${intlNum} (quota left: ${resp.data.quotaRemaining})`);
+      console.log(`Textbelt SMS sent to ${intlNum} (quota left: ${resp.data.quotaRemaining})`);
       return true;
     }
-    console.log(`⚠ Textbelt: ${resp.data?.error || 'failed'}`);
+    console.log(`Textbelt: ${resp.data?.error || 'failed'}`);
     return false;
   } catch (err) {
-    console.log('⚠ Textbelt error:', err.message);
+    console.log('Textbelt error:', err.message);
     return false;
   }
 }
@@ -221,11 +181,11 @@ async function tryFast2Sms(phone, message) {
       { route: 'q', message, language: 'english', flash: 0, numbers: num },
       { headers: { authorization: key, 'Content-Type': 'application/json' }, timeout: 8000 }
     );
-    if (resp.data?.return) { console.log(`✅ Fast2SMS sent to +91${num}`); return true; }
-    console.log('⚠ Fast2SMS:', JSON.stringify(resp.data));
+    if (resp.data?.return) { console.log(`Fast2SMS sent to +91${num}`); return true; }
+    console.log('Fast2SMS:', JSON.stringify(resp.data));
     return false;
   } catch (err) {
-    console.log('⚠ Fast2SMS error:', err.response?.data || err.message);
+    console.log('Fast2SMS error:', err.response?.data || err.message);
     return false;
   }
 }
@@ -233,23 +193,17 @@ async function tryFast2Sms(phone, message) {
 async function dispatchSms(phone, message) {
   if (!phone) return;
   const num = String(phone).replace(/\D/g, '').replace(/^91/, '').slice(-10);
-  console.log(`📱 Attempting SMS to +91${num}: "${message.slice(0, 60)}..."`);
+  console.log(`Attempting SMS to +91${num}: "${message.slice(0, 60)}..."`);
   if (await tryFast2Sms(phone, message)) return;
   if (await tryTextbeltSms(phone, message)) return;
-  console.log(`ℹ SMS channels exhausted for +91${num}. OTP available in email.`);
+  console.log(`SMS channels exhausted for +91${num}. OTP available in email.`);
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// EMAIL TEMPLATES
-// ════════════════════════════════════════════════════════════════════════════
-
-// ── OTP Email — Professional Razorpay style ───────────────────────────────────
 async function sendOtpEmail({ to, firstName, otp, amount, validMins = 10, from: flightFrom, dest: flightTo, airline, bookingType }) {
   if (!to) return;
 
   const formattedAmount = Number(amount || 0).toLocaleString('en-IN');
 
-  // Build order detail row inside the transaction card
   let orderRowHtml = '';
   if (bookingType === 'hotel' && (flightFrom || airline)) {
     orderRowHtml = `
@@ -309,7 +263,6 @@ async function sendOtpEmail({ to, firstName, otp, amount, validMins = 10, from: 
       <td align="center">
         <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%">
 
-          <!-- ── Razorpay Header ── -->
           <tr>
             <td style="background:linear-gradient(135deg,#0b2d63 0%,#312e81 100%);border-radius:14px 14px 0 0;padding:24px 32px">
               <table width="100%" cellpadding="0" cellspacing="0">
@@ -337,21 +290,17 @@ async function sendOtpEmail({ to, firstName, otp, amount, validMins = 10, from: 
             </td>
           </tr>
 
-          <!-- Orange accent line -->
           <tr><td style="background:linear-gradient(90deg,#ff6b35,#f7931e);height:3px;line-height:3px;font-size:0">&nbsp;</td></tr>
 
-          <!-- ── Main Body ── -->
           <tr>
             <td style="background:#ffffff;padding:36px 32px 28px">
 
-              <!-- Greeting -->
               <p style="margin:0 0 6px;color:#111827;font-size:17px;font-weight:600">Hello, ${firstName || 'Traveller'} 👋</p>
               <p style="margin:0 0 28px;color:#6b7280;font-size:14px;line-height:1.7">
                 You requested an OTP to authorise a payment on <strong style="color:#111827">SkyWay Travel</strong>.
                 Use this OTP within <strong style="color:#ea580c">${validMins} minutes</strong>.
               </p>
 
-              <!-- Transaction Card -->
               <table width="100%" cellpadding="0" cellspacing="0" style="border:1.5px solid #e5e7eb;border-radius:14px;margin-bottom:28px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.05)">
                 <tr>
                   <td style="background:#f9fafb;padding:18px 20px">
@@ -373,7 +322,6 @@ async function sendOtpEmail({ to, firstName, otp, amount, validMins = 10, from: 
                 ${orderRowHtml}
               </table>
 
-              <!-- OTP Box -->
               <table width="100%" cellpadding="0" cellspacing="0" style="background:#fff7ed;border:2px dashed #fed7aa;border-radius:14px;margin-bottom:26px">
                 <tr>
                   <td style="padding:30px 20px;text-align:center">
@@ -392,7 +340,6 @@ async function sendOtpEmail({ to, firstName, otp, amount, validMins = 10, from: 
                 </tr>
               </table>
 
-              <!-- Security Notice -->
               <table width="100%" cellpadding="0" cellspacing="0" style="background:#fef2f2;border:1.5px solid #fecaca;border-radius:12px;margin-bottom:8px">
                 <tr>
                   <td style="padding:16px 20px">
@@ -410,7 +357,6 @@ async function sendOtpEmail({ to, firstName, otp, amount, validMins = 10, from: 
             </td>
           </tr>
 
-          <!-- ── Footer ── -->
           <tr>
             <td style="background:#f9fafb;border-top:1px solid #e5e7eb;border-radius:0 0 14px 14px;padding:18px 32px">
               <table width="100%" cellpadding="0" cellspacing="0">
@@ -440,7 +386,7 @@ async function sendOtpEmail({ to, firstName, otp, amount, validMins = 10, from: 
 
   const transport = await getMailer();
   if (!transport) {
-    console.log(`⚠ No mailer available — OTP [${otp}] for ${to} logged to console only`);
+    console.log(`No mailer available — OTP [${otp}] for ${to} logged to console only`);
     return;
   }
 
@@ -450,27 +396,24 @@ async function sendOtpEmail({ to, firstName, otp, amount, validMins = 10, from: 
     subject: `🔐 ${otp} is your SkyWay OTP — ₹${formattedAmount} (valid ${validMins} min)`,
     html,
   });
-  console.log(`✅ OTP email sent → ${to}`);
+  console.log(`OTP email sent → ${to}`);
 
-  // If using Ethereal, log the preview URL so user can view the email
   const previewUrl = nodemailer.getTestMessageUrl(info);
   if (previewUrl) {
-    console.log(`\n📬 VIEW OTP EMAIL HERE → ${previewUrl}\n`);
+    console.log(`View OTP email: ${previewUrl}`);
   }
 }
 
-// ── Payment Success Confirmation Email ────────────────────────────────────────
 async function sendConfirmationEmail({ to, firstName, lastName, amount, bookingId, paymentId, method, bookingType, from, to: dest, airline, paidAt, newBalance, bank }) {
   if (!to) return;
 
-  const label     = bookingType === 'hotel' ? 'Hotel Reservation' : 'Flight Ticket';
-  const isHotel   = bookingType === 'hotel';
-  const route     = from && dest ? `${from} → ${dest}` : (airline || 'SkyWay');
-  const dateStr   = new Date(paidAt || Date.now()).toLocaleString('en-IN', { dateStyle: 'long', timeStyle: 'short' });
+  const label   = bookingType === 'hotel' ? 'Hotel Reservation' : 'Flight Ticket';
+  const isHotel = bookingType === 'hotel';
+  const route   = from && dest ? `${from} → ${dest}` : (airline || 'SkyWay');
+  const dateStr = new Date(paidAt || Date.now()).toLocaleString('en-IN', { dateStyle: 'long', timeStyle: 'short' });
   const formattedAmount = Number(amount || 0).toLocaleString('en-IN');
   const methodLabel = (method || 'CARD').toUpperCase();
 
-  // Route / hotel visual block
   let itineraryBlock = '';
   if (!isHotel && from && dest) {
     itineraryBlock = `
@@ -525,10 +468,8 @@ async function sendConfirmationEmail({ to, firstName, lastName, amount, bookingI
       <td align="center">
         <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%">
 
-          <!-- Header: Success Green -->
           <tr>
             <td style="background:linear-gradient(135deg,#065f46 0%,#059669 100%);border-radius:14px 14px 0 0;padding:36px 32px;text-align:center">
-              <!-- Checkmark circle -->
               <div style="width:68px;height:68px;background:rgba(255,255,255,.15);border:2px solid rgba(255,255,255,.4);border-radius:50%;margin:0 auto 16px;display:table;line-height:68px;text-align:center">
                 <span style="color:#ffffff;font-size:32px;display:table-cell;vertical-align:middle">&#10003;</span>
               </div>
@@ -537,14 +478,11 @@ async function sendConfirmationEmail({ to, firstName, lastName, amount, bookingI
             </td>
           </tr>
 
-          <!-- Green-to-white separator -->
           <tr><td style="background:linear-gradient(90deg,#059669,#10b981);height:3px;line-height:3px;font-size:0">&nbsp;</td></tr>
 
-          <!-- Body -->
           <tr>
             <td style="background:#ffffff;padding:36px 32px 28px">
 
-              <!-- Booking Reference Badge -->
               <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border:1.5px solid #e5e7eb;border-radius:12px;margin-bottom:28px">
                 <tr>
                   <td style="padding:20px;text-align:center">
@@ -559,10 +497,8 @@ async function sendConfirmationEmail({ to, firstName, lastName, amount, bookingI
                 </tr>
               </table>
 
-              <!-- Itinerary block -->
               ${itineraryBlock}
 
-              <!-- Transaction Details Table -->
               <table width="100%" cellpadding="0" cellspacing="0" style="border:1.5px solid #e5e7eb;border-radius:12px;margin-bottom:24px;overflow:hidden">
                 <tr><td colspan="2" style="background:#f9fafb;padding:12px 20px;border-bottom:1px solid #e5e7eb">
                   <span style="color:#6b7280;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em">Payment Details</span>
@@ -608,7 +544,6 @@ async function sendConfirmationEmail({ to, firstName, lastName, amount, bookingI
                 </tr>
               </table>
 
-              <!-- Have a great trip message -->
               <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:12px;margin-bottom:8px">
                 <tr>
                   <td style="padding:16px 20px;text-align:center">
@@ -622,7 +557,6 @@ async function sendConfirmationEmail({ to, firstName, lastName, amount, bookingI
             </td>
           </tr>
 
-          <!-- Footer -->
           <tr>
             <td style="background:#f9fafb;border-top:1px solid #e5e7eb;border-radius:0 0 14px 14px;padding:18px 32px">
               <table width="100%" cellpadding="0" cellspacing="0">
@@ -649,7 +583,7 @@ async function sendConfirmationEmail({ to, firstName, lastName, amount, bookingI
 </html>`;
 
   const transport = await getMailer();
-  if (!transport) { console.log('⚠ No mailer — confirmation email skipped'); return; }
+  if (!transport) { console.log('No mailer — confirmation email skipped'); return; }
 
   const info = await transport.sendMail({
     from: `"SkyWay Travel" <${process.env.EMAIL_USER || 'bookings@skyway.test'}>`,
@@ -657,12 +591,11 @@ async function sendConfirmationEmail({ to, firstName, lastName, amount, bookingI
     subject: `✅ Booking Confirmed — ${bookingId} | SkyWay Travel`,
     html,
   });
-  console.log(`✅ Confirmation email → ${to}`);
+  console.log(`Confirmation email sent → ${to}`);
   const previewUrl = nodemailer.getTestMessageUrl(info);
-  if (previewUrl) console.log(`📬 VIEW CONFIRMATION EMAIL → ${previewUrl}`);
+  if (previewUrl) console.log(`View confirmation email: ${previewUrl}`);
 }
 
-// ── Payment Failure Email ──────────────────────────────────────────────────────
 async function sendPaymentFailureEmail({ to, firstName, amount, reason, method }) {
   if (!to) return;
   const reasonText = reason === 'insufficient_funds'
@@ -735,7 +668,7 @@ async function sendPaymentFailureEmail({ to, firstName, amount, reason, method }
 </html>`;
 
   const transport = await getMailer();
-  if (!transport) { console.log('⚠ No mailer — failure email skipped'); return; }
+  if (!transport) { console.log('No mailer — failure email skipped'); return; }
 
   const info = await transport.sendMail({
     from: `"SkyWay Travel" <${process.env.EMAIL_USER || 'bookings@skyway.test'}>`,
@@ -743,18 +676,12 @@ async function sendPaymentFailureEmail({ to, firstName, amount, reason, method }
     subject: `❌ Payment Failed — ₹${formattedAmount} | SkyWay`,
     html,
   });
-  console.log(`📧 Payment failure email → ${to}`);
+  console.log(`Payment failure email sent → ${to}`);
   const previewUrl = nodemailer.getTestMessageUrl(info);
-  if (previewUrl) console.log(`📬 VIEW FAILURE EMAIL → ${previewUrl}`);
+  if (previewUrl) console.log(`View failure email: ${previewUrl}`);
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// ROUTES
-// ════════════════════════════════════════════════════════════════════════════
-
-/**
- * POST /api/payments/validate-upi
- */
+// POST /api/payments/validate-upi
 router.post('/validate-upi', async (req, res) => {
   const { upiId } = req.body;
   if (!upiId) return res.status(400).json({ success: false, error: 'UPI ID required' });
@@ -785,15 +712,7 @@ router.post('/validate-upi', async (req, res) => {
   });
 });
 
-/**
- * POST /api/payments/send-otp
- *
- * Sends OTP via:
- *  1. Email (always)
- *  2. SMS to the registered phone number (best-effort — requires Fast2SMS or Textbelt key)
- *
- * The OTP email now includes the flight/hotel booking details.
- */
+// POST /api/payments/send-otp
 router.post('/send-otp', async (req, res) => {
   const { email, phone, firstName, amount, method, bookingType, from, to, airline, deviceId } = req.body;
 
@@ -801,11 +720,11 @@ router.post('/send-otp', async (req, res) => {
     return res.status(400).json({ success: false, error: 'Email or phone required' });
   }
 
-  // ── One OTP per device ──────────────────────────────────────────────────
+  // one active OTP per device
   if (deviceId) {
     const existing = deviceStore.get(deviceId);
     if (existing && existing.expiresAt > Date.now()) {
-      console.log(`⚠ Device ${deviceId} already has active session ${existing.sessionId}`);
+      console.log(`Device ${deviceId} already has active session ${existing.sessionId}`);
       return res.json({
         success: true,
         sessionId: existing.sessionId,
@@ -839,12 +758,11 @@ router.post('/send-otp', async (req, res) => {
     deviceStore.set(deviceId, { sessionId, expiresAt, isUpi, orderId });
   }
 
-  // Save initial pending state in orderStatusStore
-  const captureAt = Date.now() + 15000; // Auto-transition in 15 seconds
+  const captureAt = Date.now() + 15000;
   orderStatusStore.set(orderId, {
     status: 'pending',
     captureAt,
-    expiresAt: Date.now() + 30 * 60 * 1000, // cleanup in 30 mins
+    expiresAt: Date.now() + 30 * 60 * 1000,
     amount,
     method,
     sessionId,
@@ -853,16 +771,12 @@ router.post('/send-otp', async (req, res) => {
     payload: { email, phone, firstName, amount, method, bookingType, from, to, airline }
   });
 
-  // SMS text
   const smsText = `SkyWay OTP: ${otp} for Rs.${Number(amount || 0).toLocaleString('en-IN')} payment. Valid ${validMins} min. DO NOT share. -Razorpay`;
 
-  // Send both email and SMS simultaneously (only for non-UPI Card/Netbanking)
   let emailSent = false;
   if (!isUpi) {
     const results = await Promise.allSettled([
-      // 1. Email — with full order details (use 'dest' alias to avoid 'to' conflict)
       sendOtpEmail({ to: email, firstName, otp, amount, validMins, from, dest: to, airline, bookingType }),
-      // 2. SMS to the registered phone number
       dispatchSms(phone, smsText),
     ]);
     emailSent = results[0].status === 'fulfilled';
@@ -870,14 +784,12 @@ router.post('/send-otp', async (req, res) => {
       console.log('OTP email error:', results[0].reason?.message);
     }
   } else {
-    // For UPI, the transaction authorization occurs inside the UPI app mockup, so no physical OTP email/SMS is sent.
     emailSent = true;
   }
 
-  // Initialize mailer on first OTP request (so we know if we're in dev mode)
   await getMailer();
 
-  console.log(`🔐 OTP [${otp}] → session ${sessionId} | order: ${orderId} | device:${deviceId || 'unknown'} | method:${method} | expires:${validMins}min | phone:+91${String(phone || '').slice(-10)} | email:${emailSent} | devMode:${isDevMailer}`);
+  console.log(`OTP [${otp}] → session ${sessionId} | order: ${orderId} | device: ${deviceId || 'unknown'} | method: ${method} | expires: ${validMins}min`);
 
   res.json({
     success: true,
@@ -886,7 +798,6 @@ router.post('/send-otp', async (req, res) => {
     emailSent,
     smsSent: false,
     expiresInMinutes: validMins,
-    // In dev mode (no Gmail), include OTP so the client can display it for testing
     ...(isDevMailer ? { devOtp: otp, isDevMode: true } : {}),
     message: emailSent
       ? (isDevMailer
@@ -896,19 +807,7 @@ router.post('/send-otp', async (req, res) => {
   });
 });
 
-/**
- * POST /api/payments/verify-otp
- *
- * Verifies OTP → runs realistic balance check → success OR failure.
- *
- * Balance check logic:
- *  - Card ending 0000/1111 → always fails (insufficient funds) [for testing]
- *  - UPI starting with "fail"/"broke" → always fails [for testing]
- *  - Otherwise: stochastic simulation (~25% chance of failure) OR success
- *
- * On SUCCESS: sends booking confirmation email + SMS
- * On FAILURE: sends payment failed notification email + SMS
- */
+// POST /api/payments/verify-otp
 router.post('/verify-otp', async (req, res) => {
   const { sessionId, otp: userOtp, upiId, cardLast4, bank } = req.body;
 
@@ -934,12 +833,10 @@ router.post('/verify-otp', async (req, res) => {
   const isUpi = (session.payload.method || '').toLowerCase() === 'upi';
 
   if (isUpi) {
-    // For UPI, the otp input is the user's UPI PIN. We accept any valid 4 to 6 digit numerical PIN.
     if (!/^\d{4,6}$/.test(userOtp)) {
       return res.status(400).json({ success: false, error: 'Invalid UPI PIN. Must be 4 or 6 digits.' });
     }
   } else {
-    // Verify credit/debit card or netbanking OTP
     if (String(userOtp).trim() !== String(session.otp)) {
       const left = 5 - session.attempts;
       return res.status(400).json({
@@ -949,26 +846,21 @@ router.post('/verify-otp', async (req, res) => {
     }
   }
 
-  // ✅ OTP / UPI PIN verified — run balance check
   const { email, phone, firstName, amount, method, bookingType, from, to, airline, orderId, paymentId, bookingId } = session.payload;
   otpStore.delete(sessionId);
 
-  // Simulate realistic bank processing delay (1.5–3 sec)
   await new Promise(r => setTimeout(r, 1500 + Math.random() * 1500));
 
-  // ── Balance check ──────────────────────────────────────────────────────────
   const balanceCheck = simulateBalanceCheck(amount, method, upiId, cardLast4);
   const processedAt = new Date().toISOString();
 
   if (!balanceCheck.sufficient) {
-    // ── PAYMENT FAILED ─────────────────────────────────────────────────────
     const failureReason = balanceCheck.reason === 'insufficient_funds'
       ? `Insufficient balance in your account. Your available balance (₹${balanceCheck.balance?.toLocaleString('en-IN') || '—'}) is less than the required amount (₹${Number(amount).toLocaleString('en-IN')}). No amount has been deducted.`
       : balanceCheck.reason === 'daily_limit_exceeded'
       ? 'Your bank\'s daily transaction limit has been exceeded. Please try again tomorrow or use a different account.'
       : 'Your bank declined the transaction. Please contact your bank.';
 
-    // Update order status in store
     const existingOrder = orderStatusStore.get(orderId);
     if (existingOrder) {
       existingOrder.status = 'failed';
@@ -986,7 +878,6 @@ router.post('/verify-otp', async (req, res) => {
       });
     }
 
-    // Send failure notifications (background)
     Promise.allSettled([
       sendPaymentFailureEmail({ to: email, firstName, amount, reason: balanceCheck.reason, method }),
       dispatchSms(phone, `SkyWay: Payment of Rs.${Number(amount).toLocaleString('en-IN')} FAILED. Reason: ${balanceCheck.reason === 'insufficient_funds' ? 'Insufficient funds' : 'Declined'}. No amount deducted. -SkyWay`),
@@ -997,11 +888,11 @@ router.post('/verify-otp', async (req, res) => {
       { paymentStatus: 'failed', paymentMethod: method || 'upi', paymentId }
     ).catch(err => console.error('Error updating failed booking status:', err));
 
-    console.log(`❌ Payment FAILED ${paymentId} | Reason: ${balanceCheck.reason} | Balance: ₹${balanceCheck.balance} | Required: ₹${amount}`);
+    console.log(`Payment failed ${paymentId} | reason: ${balanceCheck.reason} | balance: ${balanceCheck.balance} | required: ${amount}`);
 
     return res.json({
-      success: true,             // OTP / PIN was correct
-      paymentStatus: 'failed',   // but payment itself failed
+      success: true,
+      paymentStatus: 'failed',
       orderId, paymentId, bookingId,
       amount, currency: 'INR',
       method: method || 'upi',
@@ -1011,13 +902,11 @@ router.post('/verify-otp', async (req, res) => {
     });
   }
 
-  // ── PAYMENT CAPTURED ────────────────────────────────────────────────────────
   const paidAt = processedAt;
   const resolvedBank = bank || (upiId ? resolveUpiBank(upiId)?.bank : (cardLast4 ? 'Card Ending ' + cardLast4 : 'Bank Account'));
   const simulatedStartBalance = balanceCheck.balance || Math.round(Number(amount) * (1.5 + Math.random()));
   const newBalance = simulatedStartBalance - Number(amount);
 
-  // Update order status in store
   const existingOrder = orderStatusStore.get(orderId);
   if (existingOrder) {
     existingOrder.status = 'captured';
@@ -1037,7 +926,6 @@ router.post('/verify-otp', async (req, res) => {
     });
   }
 
-  // Send booking confirmation via ALL channels (background)
   await Booking.findOneAndUpdate(
     { ticketId: bookingId },
     { paymentStatus: 'completed', paymentMethod: method || 'card', paymentId }
@@ -1050,7 +938,7 @@ router.post('/verify-otp', async (req, res) => {
     results.forEach((r, i) => {
       if (r.status === 'rejected') console.log(`Notification ${i === 0 ? 'email' : 'SMS'} error:`, r.reason?.message);
     });
-    console.log(`✅ Payment CAPTURED ${paymentId} | Booking ${bookingId} | ₹${amount} | Remaining Balance: ₹${newBalance} | Debited: ${resolvedBank}`);
+    console.log(`Payment captured ${paymentId} | booking ${bookingId} | ₹${amount} | remaining: ₹${newBalance} | debited: ${resolvedBank}`);
   });
 
   res.json({
@@ -1066,9 +954,7 @@ router.post('/verify-otp', async (req, res) => {
   });
 });
 
-/**
- * POST /api/payments — legacy compatibility
- */
+// POST /api/payments — legacy compatibility
 router.post('/', async (req, res) => {
   const { amount, currency = 'INR', bookingId, method } = req.body;
   if (!amount || !bookingId) return res.status(400).json({ success: false, error: 'Amount and bookingId required' });
@@ -1084,22 +970,18 @@ router.post('/verify', (req, res) => {
   res.json({ success: true, verified: true });
 });
 
-/**
- * GET /api/payments/status/:orderId
- * Polls status of a payment. Automatically auto-captures UPI after time elapsed.
- */
+// GET /api/payments/status/:orderId
 router.get('/status/:orderId', async (req, res) => {
   const order = orderStatusStore.get(req.params.orderId);
   if (!order) {
     return res.status(404).json({ success: false, error: 'Order not found' });
   }
 
-  // Auto-transition to captured/failed if pending and time elapsed
+  // auto-capture non-UPI orders after the capture window elapses
   if (order.status === 'pending' && Date.now() >= order.captureAt && order.method !== 'upi') {
     const { amount, method, paymentId, bookingId, payload } = order;
     const { email, phone, firstName, bookingType, from, to, airline } = payload || {};
-    
-    // Simulate check
+
     const upiIdToCheck = payload.upiId || 'user@upi';
     const balanceCheck = simulateBalanceCheck(amount, method, upiIdToCheck, null);
 
@@ -1120,7 +1002,7 @@ router.get('/status/:orderId', async (req, res) => {
         { paymentStatus: 'failed', paymentMethod: method || 'card', paymentId }
       ).catch(err => console.error('Error auto-updating failed booking:', err));
 
-      console.log(`❌ [AUTO-CAPTURE] Payment FAILED ${paymentId} | Reason: ${balanceCheck.reason} | Balance: ₹${balanceCheck.balance} | Required: ₹${amount}`);
+      console.log(`[auto-capture] Payment failed ${paymentId} | reason: ${balanceCheck.reason}`);
     } else {
       order.status = 'captured';
       order.paidAt = new Date().toISOString();
@@ -1136,7 +1018,6 @@ router.get('/status/:orderId', async (req, res) => {
         { paymentStatus: 'completed', paymentMethod: method || 'card', paymentId }
       ).catch(err => console.error('Error auto-updating captured booking:', err));
 
-      // Send confirmation (background)
       Promise.allSettled([
         sendConfirmationEmail({ to: email, firstName, lastName: '', amount, bookingId, paymentId, method, bookingType, from, to, airline, paidAt: order.paidAt, newBalance, bank: resolvedBank }),
         dispatchSms(phone, `SkyWay Booking ${bookingId} CONFIRMED! Amount: Rs.${Number(amount).toLocaleString('en-IN')}. Txn: ${paymentId}. Debited from ${resolvedBank}. Have a great trip! -SkyWay`),
@@ -1144,7 +1025,7 @@ router.get('/status/:orderId', async (req, res) => {
         results.forEach((r, i) => {
           if (r.status === 'rejected') console.log(`Notification ${i === 0 ? 'email' : 'SMS'} error:`, r.reason?.message);
         });
-        console.log(`✅ [AUTO-CAPTURE] Payment CAPTURED ${paymentId} | Booking ${bookingId} | ₹${amount} | Remaining Balance: ₹${newBalance} | Debited: ${resolvedBank}`);
+        console.log(`[auto-capture] Payment captured ${paymentId} | booking ${bookingId} | ₹${amount}`);
       });
     }
 
@@ -1170,10 +1051,7 @@ router.get('/status/:orderId', async (req, res) => {
   });
 });
 
-/**
- * POST /api/payments/create-order
- * Creates a Razorpay payment order
- */
+// POST /api/payments/create-order
 router.post('/create-order', async (req, res) => {
   if (!razorpayInstance) {
     return res.status(400).json({ success: false, error: 'Razorpay is not active' });
@@ -1222,10 +1100,7 @@ router.post('/create-order', async (req, res) => {
   }
 });
 
-/**
- * POST /api/payments/verify-signature
- * Verifies Razorpay payment signature
- */
+// POST /api/payments/verify-signature
 const crypto = require('crypto');
 router.post('/verify-signature', async (req, res) => {
   const {
@@ -1285,14 +1160,14 @@ router.post('/verify-signature', async (req, res) => {
     dispatchSms(phone, `SkyWay Booking ${bookingId} CONFIRMED! Amount: Rs.${Number(amount).toLocaleString('en-IN')}. Txn: ${razorpay_payment_id}. Processed via Razorpay. Have a great trip! -SkyWay`),
   ]).then(results => {
     results.forEach((r, i) => {
-      if (r.status === 'rejected') console.log(`Notification error:`, r.reason?.message);
+      if (r.status === 'rejected') console.log('Notification error:', r.reason?.message);
     });
   });
 
   await Booking.findOneAndUpdate(
     { ticketId: bookingId },
     { paymentStatus: 'completed', paymentMethod: 'card', paymentId: razorpay_payment_id }
-  ).catch(err => console.error('Error updating booking signature verified:', err));
+  ).catch(err => console.error('Error updating booking after signature verification:', err));
 
   res.json({
     success: true,
@@ -1309,18 +1184,13 @@ router.post('/verify-signature', async (req, res) => {
   });
 });
 
-/**
- * POST /api/payments/verify-upi-utr
- * Accepts UPI transaction reference / UTR number from client
- * Marks payment status as 'captured' and sends confirmation emails/SMS
- */
+// POST /api/payments/verify-upi-utr
 router.post('/verify-upi-utr', async (req, res) => {
   const { orderId, utr, upiId } = req.body;
   if (!orderId || !utr) {
     return res.status(400).json({ success: false, error: 'orderId and UTR are required' });
   }
 
-  // Validate UTR: 12-digit number
   if (!/^\d{12}$/.test(utr)) {
     return res.status(400).json({ success: false, error: 'Invalid UTR format. Must be a 12-digit number.' });
   }
@@ -1330,7 +1200,6 @@ router.post('/verify-upi-utr', async (req, res) => {
     return res.status(404).json({ success: false, error: 'Order session not found or expired' });
   }
 
-  // Mark the order status as captured
   const processedAt = new Date().toISOString();
   const paidAt = processedAt;
   const resolvedBank = upiId ? (resolveUpiBank(upiId)?.bank || 'UPI App') : 'UPI App';
@@ -1340,12 +1209,10 @@ router.post('/verify-upi-utr', async (req, res) => {
   order.bank = resolvedBank;
   order.paymentId = 'pay_utr_' + utr;
 
-  // Extract details from payload for confirmation emails
   const { amount, payload } = order;
   const { email, phone, firstName, bookingType, from, to, airline } = payload || {};
   const bookingId = order.bookingId || ((bookingType === 'hotel' ? 'HTL' : 'SKY') + Math.random().toString(36).substr(2, 8).toUpperCase());
 
-  // Send confirmation emails in background
   Promise.allSettled([
     sendConfirmationEmail({
       to: email,
@@ -1365,15 +1232,15 @@ router.post('/verify-upi-utr', async (req, res) => {
     dispatchSms(phone, `SkyWay Booking ${bookingId} CONFIRMED! Amount: Rs.${Number(amount).toLocaleString('en-IN')}. Txn: ${order.paymentId}. Debited from ${resolvedBank}. Have a great trip! -SkyWay`),
   ]).then(results => {
     results.forEach((r, i) => {
-      if (r.status === 'rejected') console.log(`Notification error:`, r.reason?.message);
+      if (r.status === 'rejected') console.log('Notification error:', r.reason?.message);
     });
-    console.log(`✅ [UPI-UTR] Payment CAPTURED for order ${orderId} with UTR ${utr}`);
+    console.log(`UPI-UTR payment captured for order ${orderId} with UTR ${utr}`);
   });
 
   await Booking.findOneAndUpdate(
     { ticketId: bookingId },
     { paymentStatus: 'completed', paymentMethod: 'upi', paymentId: order.paymentId }
-  ).catch(err => console.error('Error updating booking UPI UTR verified:', err));
+  ).catch(err => console.error('Error updating booking after UPI UTR verification:', err));
 
   res.json({
     success: true,
@@ -1390,10 +1257,7 @@ router.post('/verify-upi-utr', async (req, res) => {
   });
 });
 
-/**
- * POST /api/payments/cancel-order
- * Cancels a pending order due to page refresh or user abandonment
- */
+// POST /api/payments/cancel-order
 router.post('/cancel-order', async (req, res) => {
   const { orderId } = req.body;
   if (!orderId) return res.status(400).json({ success: false, error: 'orderId required' });
@@ -1404,26 +1268,22 @@ router.post('/cancel-order', async (req, res) => {
     order.failureCode = 'user_cancelled';
     order.failureReason = 'Transaction failed. The payment page was refreshed or closed during authorization.';
 
-    // Clean up corresponding OTP session if any
     if (order.sessionId) {
       otpStore.delete(order.sessionId);
     }
     await Booking.findOneAndUpdate(
       { ticketId: order.bookingId },
       { paymentStatus: 'failed', paymentMethod: order.method || 'card', paymentId: order.paymentId || '' }
-    ).catch(err => console.error('Error updating booking cancelled:', err));
+    ).catch(err => console.error('Error updating cancelled booking:', err));
 
-    console.log(`❌ [CANCEL-ORDER] Payment CANCELLED/FAILED for order ${orderId} due to page reload`);
+    console.log(`Payment cancelled for order ${orderId}`);
     return res.json({ success: true, status: 'failed' });
   }
 
   res.json({ success: false, error: 'Order not found' });
 });
 
-/**
- * GET /api/payments/config
- * Exposes payment gateway public config (Merchant name and Payee UPI ID)
- */
+// GET /api/payments/config
 router.get('/config', (req, res) => {
   res.json({
     success: true,

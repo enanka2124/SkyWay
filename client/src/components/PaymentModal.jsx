@@ -1,15 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
 import RazorpayOtpPage from './RazorpayOtpPage'
 
-// ── Device ID (one OTP per device) ────────────────────────────────────────────
-function getDeviceId() {
-  let id = localStorage.getItem('skyway_device_id')
-  if (!id) {
-    id = 'dev_' + Math.random().toString(36).substr(2, 20) + '_' + Date.now()
-    localStorage.setItem('skyway_device_id', id)
-  }
-  return id
-}
+// stable device fingerprint for OTP deduplication
+const DEVICE_ID = 'dev_' + (localStorage.getItem('skyway_device_id') || (() => {
+  const id = Math.random().toString(36).substr(2, 16);
+  localStorage.setItem('skyway_device_id', id);
+  return id;
+})());
 
 /**
  * PaymentModal — complete bank-grade payment flow.
@@ -17,7 +14,6 @@ function getDeviceId() {
  * When Razorpay is inactive: shows UPI QR / simulated OTP flow.
  */
 export default function PaymentModal({ amount, bookingInfo, passengerInfo, onSuccess, onPaymentFailed, onClose, bookingId }) {
-  // ── ALL state declarations at the top ────────────────────────────────────
   const [method, setMethod] = useState('upi')
   const [cardNumber, setCardNumber] = useState('')
   const [expiry, setExpiry] = useState('')
@@ -45,7 +41,6 @@ export default function PaymentModal({ amount, bookingInfo, passengerInfo, onSuc
   const autoTriggerRef = useRef(false)
   const upiDebounceRef = useRef(null)
 
-  // ── Load Razorpay checkout.js SDK ─────────────────────────────────────────
   const loadRazorpayScript = () => {
     return new Promise((resolve) => {
       if (window.Razorpay) { resolve(true); return; }
@@ -57,7 +52,6 @@ export default function PaymentModal({ amount, bookingInfo, passengerInfo, onSuc
     })
   }
 
-  // ── OTP Success handler ───────────────────────────────────────────────────
   const handleOtpSuccess = (paymentData) => {
     sessionStorage.removeItem('skyway_active_payment')
     if (paymentData?.paymentStatus === 'failed') {
@@ -77,7 +71,6 @@ export default function PaymentModal({ amount, bookingInfo, passengerInfo, onSuc
     setTimeout(() => onSuccess({ ...paymentData, method }), 3000)
   }
 
-  // ── Core: Open Razorpay checkout overlay directly ─────────────────────────
   const handleRazorpayDirect = async (currentConfig) => {
     const cfg = currentConfig || payeeConfig
     setError('')
@@ -111,7 +104,6 @@ export default function PaymentModal({ amount, bookingInfo, passengerInfo, onSuc
         return
       }
 
-      // Persist so reload-detection works
       sessionStorage.setItem('skyway_active_payment', JSON.stringify({
         orderId: data.orderId,
         amount,
@@ -187,7 +179,6 @@ export default function PaymentModal({ amount, bookingInfo, passengerInfo, onSuc
     }
   }
 
-  // ── On mount: fetch config; if Razorpay is active, auto-launch it ─────────
   useEffect(() => {
     fetch('/api/payments/config')
       .then(res => res.json())
@@ -200,7 +191,6 @@ export default function PaymentModal({ amount, bookingInfo, passengerInfo, onSuc
             razorpayKeyId: data.razorpayKeyId,
           }
           setPayeeConfig(config)
-          // Auto-open Razorpay when keys are configured
           if (data.razorpayActive && !autoTriggerRef.current) {
             autoTriggerRef.current = true
             handleRazorpayDirect(config)
@@ -210,7 +200,6 @@ export default function PaymentModal({ amount, bookingInfo, passengerInfo, onSuc
       .catch(err => console.log('Error fetching payment config:', err))
   }, []) // eslint-disable-line
 
-  // ── Auto-validate UPI ID as user types (debounced 800ms) ─────────────────
   useEffect(() => {
     if (method !== 'upi') return
     setUpiInfo(null)
@@ -241,7 +230,6 @@ export default function PaymentModal({ amount, bookingInfo, passengerInfo, onSuc
     }, 800)
   }, [upiId, method]) // eslint-disable-line
 
-  // ── Bank processing animation ─────────────────────────────────────────────
   useEffect(() => {
     if (step === 'bank-processing') {
       setBankStep(0)
@@ -251,7 +239,6 @@ export default function PaymentModal({ amount, bookingInfo, passengerInfo, onSuc
     }
   }, [step])
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
   const isUpiFormatValid = (id) => /^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$/.test(id)
 
   const formatCardNumber = (val) => {
@@ -277,9 +264,7 @@ export default function PaymentModal({ amount, bookingInfo, passengerInfo, onSuc
     return false
   }
 
-  // ── Step 1 "Continue" button → OTP or Razorpay ───────────────────────────
   const handleProceedToOtp = async () => {
-    // If Razorpay is active, the form details aren't needed — just open Razorpay
     if (payeeConfig.razorpayActive) {
       handleRazorpayDirect(payeeConfig)
       return
@@ -301,7 +286,7 @@ export default function PaymentModal({ amount, bookingInfo, passengerInfo, onSuc
     setStep('otp')
   }
 
-  // ── OTP page (full-screen) ────────────────────────────────────────────────
+  // full-screen OTP step
   if (step === 'otp') {
     const finalUpiId = selectedUpiApp ? (selectedUpiApp === 'gpay' ? 'gpay@okaxis' : 'phonepe@ybl') : upiId
     const finalUpiInfo = selectedUpiApp ? {
@@ -320,7 +305,7 @@ export default function PaymentModal({ amount, bookingInfo, passengerInfo, onSuc
         selectedUpiApp={selectedUpiApp}
         payeeConfig={payeeConfig}
         bank={bank}
-        deviceId={getDeviceId()}
+        deviceId={DEVICE_ID}
         bookingId={bookingId}
         passengerInfo={{
           ...passengerInfo,
@@ -340,7 +325,7 @@ export default function PaymentModal({ amount, bookingInfo, passengerInfo, onSuc
     )
   }
 
-  // ── Bank processing / success / failed states ─────────────────────────────
+  // bank processing / success / failure result pages
   if (step === 'bank-processing' || step === 'success' || step === 'failed') {
     return (
       <div className="modal-overlay" style={{ zIndex: 1100 }}>
@@ -448,7 +433,7 @@ export default function PaymentModal({ amount, bookingInfo, passengerInfo, onSuc
     )
   }
 
-  // ── Loading screen while Razorpay initializes ─────────────────────────────
+  // loading screen while Razorpay checkout initializes
   if (isInitializing) {
     return (
       <div className="modal-overlay" style={{ zIndex: 1100 }}>
@@ -498,7 +483,7 @@ export default function PaymentModal({ amount, bookingInfo, passengerInfo, onSuc
     )
   }
 
-  // ── Step 1: Payment details form (shown only when Razorpay is NOT active) ──
+  // payment details form — only shown when Razorpay is not active
   return (
     <div className="modal-overlay" style={{ zIndex: 1100 }} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
       <div className="glass-card w-full" style={{ maxWidth: 540, padding: '2rem 2.5rem' }} onClick={e => e.stopPropagation()}>

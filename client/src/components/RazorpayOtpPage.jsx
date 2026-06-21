@@ -1,12 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
 
-/**
- * RazorpayOtpPage — Real OTP flow with WHITE background (like real bank payment pages):
- *  - On mount: calls /api/payments/send-otp → real OTP sent to user's email + registered SMS
- *  - User enters OTP → calls /api/payments/verify-otp → payment completes
- *  - UPI payments: 5-min countdown timer; Card/NetBanking: 10-min countdown
- *  - OTP is sent to both email AND the user's registered phone number
- */
 export default function RazorpayOtpPage({ amount, method, cardNumber, upiId, upiInfo, selectedUpiApp, payeeConfig, bank, deviceId, passengerInfo, onOtpSuccess, onBack, bookingId }) {
   const [otp, setOtp] = useState(['', '', '', '', '', ''])
   const [sessionId, setSessionId] = useState(null)
@@ -134,7 +127,6 @@ export default function RazorpayOtpPage({ amount, method, cardNumber, upiId, upi
 
   const isUpi = (method || '').toLowerCase() === 'upi'
 
-  // ── Send OTP on mount ──────────────────────────────────────────────────────
   const sendOtp = async () => {
     setSendStatus('sending')
     setOtp(['', '', '', '', '', ''])
@@ -153,6 +145,7 @@ export default function RazorpayOtpPage({ amount, method, cardNumber, upiId, upi
         body: JSON.stringify({
           email: passengerInfo?.email,
           // Use registered phone (from auth user) as primary; fallback to form phone
+          // prefer the registered phone from auth over form-entered phone
           phone: passengerInfo?.registeredPhone || passengerInfo?.phone,
           firstName: passengerInfo?.firstName,
           amount,
@@ -201,7 +194,7 @@ export default function RazorpayOtpPage({ amount, method, cardNumber, upiId, upi
 
   useEffect(() => { sendOtp() }, []) // eslint-disable-line
 
-  // ── Resend countdown (30s) ─────────────────────────────────────────────────
+  // resend countdown — 30 seconds after initial send
   useEffect(() => {
     if (sendStatus !== 'sent') return
     if (resendTimer <= 0) { setCanResend(true); return }
@@ -209,7 +202,7 @@ export default function RazorpayOtpPage({ amount, method, cardNumber, upiId, upi
     return () => clearTimeout(t)
   }, [resendTimer, sendStatus])
 
-  // ── Session expiry countdown ───────────────────────────────────────────────
+  // tick down the session expiry timer
   useEffect(() => {
     if (sendStatus !== 'sent' || sessionSecondsLeft === null) return
     if (sessionSecondsLeft <= 0) {
@@ -237,7 +230,7 @@ export default function RazorpayOtpPage({ amount, method, cardNumber, upiId, upi
   // Timer color — red when < 60s
   const timerColor = sessionSecondsLeft !== null && sessionSecondsLeft < 60 ? '#e53e3e' : '#e07c00'
 
-  // ── OTP input handlers ─────────────────────────────────────────────────────
+  // OTP input handlers
   const handleOtpChange = (idx, val) => {
     if (!/^\d?$/.test(val)) return
     const next = [...otp]; next[idx] = val; setOtp(next)
@@ -258,7 +251,7 @@ export default function RazorpayOtpPage({ amount, method, cardNumber, upiId, upi
     }
   }
 
-  // ── Verify OTP / UPI PIN ───────────────────────────────────────────────────
+  // submit OTP or UPI PIN for verification
   const handleVerify = async (customOtp) => {
     const isUpiVal = method === 'upi'
     const otpStr = customOtp || (isUpiVal ? upiPin.join('') : otp.join(''))
@@ -326,7 +319,7 @@ export default function RazorpayOtpPage({ amount, method, cardNumber, upiId, upi
 
   const isVerifyDisabled = verifying || sendStatus !== 'sent' || otp.join('').length < 6 || sessionExpired
 
-  // ── Accent color based on method ─────────────────────────────────────────
+  // accent colours depending on payment method
   const accentColor = isUpi ? '#7c3aed' : '#e07c00'
   const accentColorLight = isUpi ? '#ede9fe' : '#fff7ed'
   const accentColorBorder = isUpi ? '#ddd6fe' : '#fed7aa'
@@ -337,7 +330,7 @@ export default function RazorpayOtpPage({ amount, method, cardNumber, upiId, upi
     ? '0 4px 20px rgba(124,58,237,0.35)'
     : '0 4px 20px rgba(234,88,12,0.3)'
 
-  // ── Card Brand & Issuer Resolution ─────────────────────────────────────────
+  // resolve card brand and issuing bank for the 3DS page header
   const getCardBranding = (num) => {
     if (!num) return { bankName: 'SBI Card', brand: 'Mastercard Secure', logoIcon: '💳', color: '#113a5d' }
     const firstDigit = num.replace(/\s/g, '')[0]
@@ -386,7 +379,7 @@ export default function RazorpayOtpPage({ amount, method, cardNumber, upiId, upi
         }
       `}</style>
 
-      {/* ── Simulated Phone Notification Drawer ── */}
+      {/* phone notification drawer (UPI custom ID flow) */}
       {showPhoneNotification && (
         <div 
           onClick={() => { setShowPhoneNotification(false); setSubStep('upi-app'); }}
@@ -433,7 +426,7 @@ export default function RazorpayOtpPage({ amount, method, cardNumber, upiId, upi
         </div>
       )}
 
-      {/* ── Bank Processing Overlay (after verification) ── */}
+      {/* full-screen overlay while waiting for bank confirmation */}
       {bankProcessing && (
         <div style={{
           position: 'fixed', inset: 0, zIndex: 200,
@@ -463,7 +456,7 @@ export default function RazorpayOtpPage({ amount, method, cardNumber, upiId, upi
         </div>
       )}
 
-      {/* ── 1. UPI Waiting Scanner / App Approval Request ── */}
+      {/* UPI QR scanner + UTR entry */}
       {method === 'upi' && subStep === 'upi-waiting' && (() => {
         const upiUrl = `upi://pay?pa=${activePayeeUpi}&pn=${encodeURIComponent(activeMerchantName)}&am=${amount}&cu=INR&tn=SkyWay%20Booking`;
         const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(upiUrl)}`;
@@ -630,7 +623,7 @@ export default function RazorpayOtpPage({ amount, method, cardNumber, upiId, upi
         );
       })()}
 
-      {/* ── 2. UPI Mobile App Mockup Screen ── */}
+      {/* UPI mobile app approval mockup */}
       {method === 'upi' && subStep === 'upi-app' && (
         <div style={{
           width: '100%', maxWidth: 360, background: '#ffffff', borderRadius: '32px', border: '12px solid #1a1a1a',
@@ -674,7 +667,7 @@ export default function RazorpayOtpPage({ amount, method, cardNumber, upiId, upi
         </div>
       )}
 
-      {/* ── 3. NPCI UPI PIN Pad ── */}
+      {/* NPCI UPI PIN pad */}
       {method === 'upi' && subStep === 'upi-pin' && (
         <div style={{
           width: '100%', maxWidth: 360, background: '#0d1b2a', borderRadius: '32px', border: '12px solid #1a1a1a',
@@ -770,7 +763,7 @@ export default function RazorpayOtpPage({ amount, method, cardNumber, upiId, upi
         </div>
       )}
 
-      {/* ── 4. NetBanking Retail Login Portal ── */}
+      {/* netbanking retail login page */}
       {method === 'netbanking' && subStep === 'nb-login' && (
         <div style={{
           width: '100%', maxWidth: 440, background: '#ffffff', borderRadius: '12px', border: '1px solid #d1d5db',
@@ -843,7 +836,7 @@ export default function RazorpayOtpPage({ amount, method, cardNumber, upiId, upi
         </div>
       )}
 
-      {/* ── 5. Netbanking OTP Page ── */}
+      {/* netbanking OTP verification */}
       {method === 'netbanking' && subStep === 'nb-otp' && (
         <div style={{
           width: '100%', maxWidth: 440, background: '#ffffff', borderRadius: 12, border: '1px solid #e5e7eb',
@@ -920,7 +913,7 @@ export default function RazorpayOtpPage({ amount, method, cardNumber, upiId, upi
         </div>
       )}
 
-      {/* ── 6. Card 3D Secure Verification ── */}
+      {/* card 3D secure OTP page */}
       {method === 'card' && subStep === 'card-otp' && (
         <div style={{
           width: '100%', maxWidth: 440, background: '#ffffff', borderRadius: 16, border: '1px solid #e5e7eb',

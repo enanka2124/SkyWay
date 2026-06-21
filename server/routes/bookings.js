@@ -7,7 +7,6 @@ router.post('/', async (req, res) => {
   try {
     const { flight, hotel, type, firstName, lastName, email, phone, passport, nationality, pricing } = req.body;
 
-    // Validation
     if (!firstName || !firstName.trim()) {
       return res.status(400).json({ success: false, error: 'First name is required' });
     }
@@ -21,10 +20,8 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Flight or hotel details are required' });
     }
 
-    // Generate ticket ID
     const ticketId = (type === 'hotel' ? 'HTL' : 'SKY') + Math.random().toString(36).substr(2, 8).toUpperCase();
 
-    // Default calculations if pricing is not fully provided
     const baseFare = flight ? (flight.price || 0) : (hotel ? hotel.price || 0 : 0);
     const taxes = pricing?.taxes || Math.round(baseFare * 0.05);
     const convenienceFee = pricing?.fee || 299;
@@ -86,11 +83,7 @@ router.post('/', async (req, res) => {
     const booking = new Booking(bookingData);
     await booking.save();
 
-    res.status(201).json({
-      success: true,
-      ticketId,
-      booking,
-    });
+    res.status(201).json({ success: true, ticketId, booking });
   } catch (err) {
     console.error('Error saving booking:', err);
     res.status(500).json({ success: false, error: 'Failed to save booking to database' });
@@ -105,20 +98,16 @@ router.get('/', async (req, res) => {
     if (userEmail) {
       query.userEmail = userEmail;
     }
-    
+
     const bookings = await Booking.find(query).sort({ bookedAt: -1 });
 
-    res.json({
-      success: true,
-      count: bookings.length,
-      bookings,
-    });
+    res.json({ success: true, count: bookings.length, bookings });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to fetch bookings from database' });
   }
 });
 
-// PATCH /api/bookings/:ticketId/cancel — Cancel a booking
+// PATCH /api/bookings/:ticketId/cancel
 router.patch('/:ticketId/cancel', async (req, res) => {
   try {
     const booking = await Booking.findOne({ ticketId: req.params.ticketId });
@@ -134,7 +123,7 @@ router.patch('/:ticketId/cancel', async (req, res) => {
   }
 });
 
-// DELETE /api/bookings/:ticketId — Hard delete a booking
+// DELETE /api/bookings/:ticketId
 router.delete('/:ticketId', async (req, res) => {
   try {
     const result = await Booking.findOneAndDelete({ ticketId: req.params.ticketId });
@@ -147,7 +136,7 @@ router.delete('/:ticketId', async (req, res) => {
   }
 });
 
-// PATCH /api/bookings/:ticketId/passenger — Update passenger details
+// PATCH /api/bookings/:ticketId/passenger
 router.patch('/:ticketId/passenger', async (req, res) => {
   try {
     const { firstName, lastName, passport, nationality } = req.body;
@@ -155,8 +144,7 @@ router.patch('/:ticketId/passenger', async (req, res) => {
     if (!booking) {
       return res.status(404).json({ success: false, error: 'Booking not found' });
     }
-    
-    // Validation
+
     if (firstName && !firstName.trim()) {
       return res.status(400).json({ success: false, error: 'First name cannot be empty' });
     }
@@ -182,13 +170,12 @@ router.patch('/:ticketId/passenger', async (req, res) => {
 
     booking.markModified('passenger');
     await booking.save();
-    
+
     res.json({ success: true, booking });
   } catch (err) {
-    console.error('Error updating booking passenger details:', err);
+    console.error('Error updating passenger details:', err);
     res.status(500).json({ success: false, error: 'Failed to update passenger details' });
   }
 });
 
 module.exports = router;
-

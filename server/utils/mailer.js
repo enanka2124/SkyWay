@@ -1,13 +1,5 @@
 const nodemailer = require('nodemailer');
 
-/**
- * Mailer Utility
- * Handles all outgoing email communications for the SkyWay platform.
- */
-
-// Create a transporter. 
-// If EMAIL_USER is not provided, we'll automatically generate a temporary test account 
-// using Ethereal (Zero-Config) so the 'Live' functionality works out of the box.
 let transporter;
 
 const getTransporter = async () => {
@@ -16,18 +8,17 @@ const getTransporter = async () => {
       await transporter.verify();
       return transporter;
     } catch (err) {
-      transporter = null; // Reset if invalid
+      transporter = null;
     }
   }
 
   if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS || process.env.EMAIL_PASS === 'your-app-password') {
-    console.error('\n❌ [MAILER ERROR] Missing or invalid EMAIL_USER and EMAIL_PASS in .env file!');
-    console.error('👉 You MUST set a real Gmail address and App Password to send emails.\n');
+    console.error('Missing or invalid EMAIL_USER / EMAIL_PASS in .env — emails will not be sent.');
     return null;
   }
 
   const pass = process.env.EMAIL_PASS.replace(/\s+/g, '');
-  
+
   transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
@@ -38,20 +29,15 @@ const getTransporter = async () => {
 
   try {
     await transporter.verify();
-    console.log('\n✅ [MAILER] SMTP Server is ready for:', process.env.EMAIL_USER);
+    console.log('Mailer ready:', process.env.EMAIL_USER);
   } catch (error) {
-    console.error('\n❌ [MAILER ERROR] SMTP Connection Failed:', error.message);
-    console.error('👉 Please check if your EMAIL_USER and EMAIL_PASS (App Password) are correct in .env\n');
+    console.error('SMTP connection failed:', error.message);
     transporter = null;
   }
 
   return transporter;
 };
 
-/**
- * Sends a stylized email using HTML templates.
- * @param {Object} options - Email options (to, subject, html)
- */
 const sendEmail = async (options) => {
   const mailer = await getTransporter();
   if (!mailer) return null;
@@ -65,26 +51,20 @@ const sendEmail = async (options) => {
 
   try {
     const info = await mailer.sendMail(mailOptions);
-    console.log(`[MAILER] Email sent: ${info.messageId}`);
-    
-    // If using Ethereal, log the preview URL for easy access
+    console.log(`Email sent: ${info.messageId}`);
+
     const previewUrl = nodemailer.getTestMessageUrl(info);
     if (previewUrl) {
-      console.log(`\n📬 [MAILER] PREVIEW SENT EMAIL HERE: ${previewUrl}\n`);
+      console.log(`Preview email: ${previewUrl}`);
     }
-    
+
     return info;
   } catch (error) {
-    console.error(`[MAILER ERROR] Failed to send email: ${error.message}`);
-    // We don't throw here to prevent blocking the main auth flow, 
-    // but in a production environment, you might want to handle this differently.
+    console.error(`Failed to send email: ${error.message}`);
     return null;
   }
 };
 
-/**
- * Generates the Registration Success Email template.
- */
 const sendRegistrationEmail = async (user) => {
   const html = `
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
@@ -107,7 +87,7 @@ const sendRegistrationEmail = async (user) => {
       <td align="center" style="padding: 20px 0;">
         <!--[if (gte mso 9)|(IE)]><table align="center" border="0" cellspacing="0" cellpadding="0" width="600"><tr><td><![endif]-->
         <table border="0" cellpadding="0" cellspacing="0" width="100%" class="main-table" style="max-width: 600px; background-color: #ffffff; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.1); font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
-          
+
           <!-- Header -->
           <tr>
             <td align="center" bgcolor="#1a1a1a" style="padding: 30px 20px;">
@@ -120,7 +100,7 @@ const sendRegistrationEmail = async (user) => {
             <td class="padding-mobile" style="padding: 40px;">
               <h2 style="color: #333; margin-bottom: 20px;">Welcome to the family, ${user.firstName}!</h2>
               <p style="color: #555; line-height: 1.6; font-size: 16px;">Your registration was successful. We are thrilled to have you on board. SkyWay is your premium gateway to hassle-free travel booking.</p>
-              
+
               <!-- Account Details -->
               <table border="0" cellpadding="20" cellspacing="0" width="100%" bgcolor="#f9f9f9" style="border-radius: 8px; margin-top: 30px;">
                 <tr>
@@ -135,16 +115,16 @@ const sendRegistrationEmail = async (user) => {
               </table>
 
               <p style="color: #888; font-size: 13px; margin-top: 20px;">Please keep these details secure. You can use your email and password to log in anytime.</p>
-              
+
               <!-- Promo Section -->
               <table border="0" cellpadding="0" cellspacing="0" width="100%" style="margin-top: 40px; border-top: 1px dashed #ddd; padding-top: 30px;">
                 <tr>
                   <td align="center">
                     <h3 style="color: #1a1a1a; font-size: 20px; margin-bottom: 25px;">Ready for your next adventure?</h3>
-                    
+
                     <div style="text-align: center;">
                       <!--[if (gte mso 9)|(IE)]><table align="center" border="0" cellspacing="0" cellpadding="0" width="560"><tr><td width="280" valign="top"><![endif]-->
-                      
+
                       <!-- Card 1 (Flight) -->
                       <table border="0" cellpadding="0" cellspacing="0" width="270" class="card-table" style="display: inline-block; margin: 10px; border-collapse: separate; vertical-align: top;">
                         <tr>
@@ -212,9 +192,6 @@ const sendRegistrationEmail = async (user) => {
   });
 };
 
-/**
- * Generates the Password Reset Email template.
- */
 const sendResetPasswordEmail = async (user, resetUrl) => {
   const html = `
     <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: auto; border: 1px solid #e0e0e0; border-radius: 10px; overflow: hidden;">
@@ -239,9 +216,6 @@ const sendResetPasswordEmail = async (user, resetUrl) => {
   });
 };
 
-/**
- * Generates the Forgot Email / Account Recovery template.
- */
 const sendRecoveryEmail = async (user) => {
   const html = `
     <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: auto; border: 1px solid #e0e0e0; border-radius: 10px; overflow: hidden;">
