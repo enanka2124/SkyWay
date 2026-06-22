@@ -39,9 +39,10 @@ Thumbs.db
 *.pem
 
 # ========================
-# Uploads (user-generated files)
+# Uploads (user-generated files — keep folder, ignore actual files)
 # ========================
-server/uploads/
+server/uploads/*
+!server/uploads/.gitkeep
 
 # ========================
 # Editor & IDE

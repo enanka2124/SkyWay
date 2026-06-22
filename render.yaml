@@ -1,33 +1,34 @@
 services:
-  # ── Full-stack: Express API + React frontend (single service) ────────────────
+  # ── SkyWay: Express API + React frontend (single monorepo service) ────────────
   - type: web
     name: skyway
     runtime: node
-    buildCommand: cd client && npm install && npm run build && cd ../server && npm install
-    startCommand: cd server && node index.js
+    rootDir: .
+    buildCommand: npm install --prefix client && npm run --prefix client build && npm install --prefix server
+    startCommand: node server/index.js
     envVars:
       - key: NODE_ENV
         value: production
       - key: PORT
         value: 10000
-      # Set these in the Render dashboard → Environment tab:
+      # ── Set ALL of these in Render Dashboard → Environment tab ──────────────
       - key: MONGO_URI
-        sync: false
+        sync: false          # MongoDB Atlas connection string
       - key: JWT_SECRET
-        sync: false
+        sync: false          # Long random string for JWT signing
       - key: CLIENT_URL
-        sync: false
+        sync: false          # Your Render service URL, e.g. https://skyway.onrender.com
       - key: EMAIL_USER
-        sync: false
+        sync: false          # Gmail address for sending emails
       - key: EMAIL_PASS
-        sync: false
+        sync: false          # Gmail App Password (not your real password)
       - key: SKYSCANNER_RAPIDAPI_KEY
-        sync: false
+        sync: false          # RapidAPI key for flight search
       - key: FAST2SMS_API_KEY
-        sync: false
+        sync: false          # Fast2SMS key for OTP SMS (optional)
       - key: PAYEE_UPI_ID
-        sync: false
+        sync: false          # Your UPI ID for payments
       - key: RAZORPAY_KEY_ID
-        sync: false
+        sync: false          # Razorpay test/live key ID
       - key: RAZORPAY_KEY_SECRET
-        sync: false
+        sync: false          # Razorpay key secret
