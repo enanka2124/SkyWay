@@ -54,6 +54,17 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// ── Serve React frontend in production ───────────────────────────────────────
+if (process.env.NODE_ENV === 'production') {
+  const clientBuild = path.join(__dirname, '..', 'client', 'dist');
+  app.use(express.static(clientBuild));
+
+  // Catch-all: send any non-API request to React's index.html
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(clientBuild, 'index.html'));
+  });
+}
+
 app.listen(PORT, () => {
   console.log(`SkyWay server running on port ${PORT}`);
 });
